@@ -88,11 +88,6 @@ background-image: linear-gradient(to bottom, #D4E9FF 0%, #B9D7F4 100%);
   position: absolute;
   z-index:10;
   width:100%;
-background-image: -webkit-gradient(linear, 0 100%, 0 0, from(transparent), color-stop(0.6, #40d3b7), to(#40d3b7));
-background-image: -webkit-linear-gradient(bottom, transparent 0%, #40d3b7 60%, #40d3b7 100%);
-background-image: -moz-linear-gradient(bottom, transparent 0%, #40d3b7 60%, #40d3b7 100%);
-background-image: -o-linear-gradient(bottom, transparent 0%, #40d3b7 60%, #40d3b7 100%);
-background-image: linear-gradient(bottom, transparent 0%, #40d3b7 60%, #40d3b7 100%)  ;
 }
 
 #nav{
