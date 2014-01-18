@@ -12,18 +12,97 @@
         <!-- Custom CSS -->
         <link rel="stylesheet" href="/css/main.css">
 
+        <link href='http://fonts.googleapis.com/css?family=Cabin:400,700,400italic,700italic' rel='stylesheet' type='text/css'>
+        <link href='http://fonts.googleapis.com/css?family=Lato:400,700,900' rel='stylesheet' type='text/css'>
     </head>
     <body>
 
-      <canvas id="SnowCanvas"></canvas>
+      <div id="header">
+        <div class="center-block">
+          <div id="nav">
+            <a href="#" class="current">Home</a>
+            <a href="#portfolio">Portfolio</a> 
+          </div>
+        </div>
+      </div>
 
-      <div class="home">
+      <div id="home" class="page" style="height:600px">
         <div class="center-wrapper">
           <div class="center-block">
 
-            <h1 class="title"><a href="/">jugal <span style="color:#8fabd8">m</span></a></h1>
+            <h1 class="title"><span class="strong">Hi,</span> I'm driven to build software that looks great.</h1>
             <div class="home-content">
-              Hi, I'm building this place up. Check back soon for more.
+            </div>
+
+          <!--
+
+          -->
+          </div>
+        </div>
+      </div>
+
+      <div id="portfolio" class="page" style="height:600px">  
+        <div class="center-wrapper">
+          <div class="center-block">
+            <div class="grid-container row">
+              <div class="grid-item" data-id="1">
+                <a href="#">
+                  <img src="/img/preview_gol.png" alt="">
+                  <dl> 
+                    <dt class="preview-title">Golem</dt> 
+                    <dt class="preview-desc">Web</dt> 
+                  </dl>
+                </a>
+              </div>
+              <div class="grid-item" data-id="2">
+                <a href="#">
+                  <img src="/img/preview_kc.png" alt="">
+                  <dl> 
+                    <dt class="preview-title">KidsCerts</dt> 
+                    <dt class="preview-desc">Web & Logo</dt> 
+                  </dl>
+                </a>
+              </div>
+              <div class="grid-item" data-id="3">
+                <a href="#">
+                  <img src="/img/preview_mm.png" alt="">
+                  <dl>
+                    <dt class="preview-title">Meditation Music</dt> 
+                    <dt class="preview-desc">Web & Illustration</dt>
+                  </dl>
+                </a>
+              </div>
+
+              <div class="grid-item" data-id="4">
+                <a href="#">
+                  <img src="/img/preview_cap.png" alt="">
+                  <dl>
+                    <dt class="preview-title">Aprende.tv</dt> 
+                    <dt class="preview-desc">Web & Illustration</dt>
+                  </dl>
+                </a>
+              </div>
+
+              <div class="grid-item" data-id="5">
+                <a href="#">
+                  <img src="/img/preview_un.jpg" alt="">
+                  <dl>
+                    <dt class="preview-title">Unlistr</dt> 
+                    <dt class="preview-desc">Web & Illustration</dt>
+                  </dl>
+                </a>
+              </div>
+
+              <div class="grid-item" data-id="6">
+                <a href="#">
+                  <img src="/img/preview_ctv.png" alt="">
+                  <dl>
+                    <dt class="preview-title">Clasroom.tv</dt> 
+                    <dt class="preview-desc">Web & Logo</dt>
+                  </dl>
+                </a>
+              </div>
+
             </div>
 
             <div class="home-links">
@@ -43,10 +122,43 @@
               </table>
             </div>
           </div>
-        </div>
+        </div>    
       </div>
 
-      <script type="text/javascript" src="/js/snow.js"></script>
+      <div id="showcase" class="overlay page" >
+          <div class="center-wrapper">
+            <div class="center-block">
+              <div class="show-item" data-id="1">
+                <div class="show-img"><img src="/img/golem.png" alt="">  </div>
+              </div>
+
+              <div class="show-item" data-id="2">
+                <div class="show-img"><img src="/img/kc.png" alt="">  </div>
+              </div>
+
+              <div class="show-item" data-id="3">
+                <div class="show-img"><img src="/img/mm1.png" alt="">  </div>
+                <div class="show-img"><img src="/img/mm2.png" alt="">  </div>
+              </div>
+
+              <div class="show-item" data-id="4">
+                <div class="show-img"><img src="/img/cap.png" alt="">  </div>
+              </div>
+
+              <div class="show-item" data-id="5">
+                <div class="show-img"><img src="/img/un1.png" alt="">  </div>
+                <div class="show-img"><img src="/img/un2.png" alt="">  </div>
+              </div>
+
+              <div class="show-item" data-id="6">
+                <div class="show-img"><img src="/img/ctv1.png" alt="">  </div>
+                <div class="show-img"><img src="/img/ctv2.png" alt="">  </div>
+              </div>
+            </div>
+          </div> 
+      </div>
+
+      <script type="text/javascript" src="/js/main.js"></script>
 
     </body>
 </html>
