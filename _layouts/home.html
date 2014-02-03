@@ -13,15 +13,17 @@
         <link rel="stylesheet" href="/css/main.css">
 
         <link href='http://fonts.googleapis.com/css?family=Cabin:400,700,400italic,700italic' rel='stylesheet' type='text/css'>
-        <link href='http://fonts.googleapis.com/css?family=Lato:400,700,900' rel='stylesheet' type='text/css'>
+        <link href='http://fonts.googleapis.com/css?family=Bitter:400,700' rel='stylesheet' type='text/css'>
+        <link href='http://fonts.googleapis.com/css?family=Raleway:400,700,300,500,600' rel='stylesheet' type='text/css'>
     </head>
     <body>
 
       <div id="header">
-        <div class="center-block">
-          <div id="nav">
-            <a href="#" class="current">Home</a>
-            <a href="#portfolio">Portfolio</a> 
+        <div id="nav">
+          <div class="center-block">
+            <a href="#home" class="current">Home</a>
+            <a href="#portfolio">Work</a> 
+            <a href="#about">About</a> 
           </div>
         </div>
       </div>
@@ -41,13 +43,18 @@
         </div>
       </div>
 
-      <div id="portfolio" class="page" style="height:600px">  
+      <div id="portfolio" class="page" style="height:600px">
+
         <div class="center-wrapper">
+
           <div class="center-block">
+          <!--
+            <div class="page-title">Recent Work</div> 
+          -->
             <div class="grid-container row">
               <div class="grid-item" data-id="1">
                 <a href="#">
-                  <img src="/img/preview_gol.png" alt="">
+                  <img src="/img/preview_gol.jpg" alt="">
                   <dl> 
                     <dt class="preview-title">Golem</dt> 
                     <dt class="preview-desc">Web</dt> 
@@ -56,7 +63,7 @@
               </div>
               <div class="grid-item" data-id="2">
                 <a href="#">
-                  <img src="/img/preview_kc.png" alt="">
+                  <img src="/img/preview_kc.jpg" alt="">
                   <dl> 
                     <dt class="preview-title">KidsCerts</dt> 
                     <dt class="preview-desc">Web & Logo</dt> 
@@ -65,7 +72,7 @@
               </div>
               <div class="grid-item" data-id="3">
                 <a href="#">
-                  <img src="/img/preview_mm.png" alt="">
+                  <img src="/img/preview_mm.jpg" alt="">
                   <dl>
                     <dt class="preview-title">Meditation Music</dt> 
                     <dt class="preview-desc">Web & Illustration</dt>
@@ -75,7 +82,7 @@
 
               <div class="grid-item" data-id="4">
                 <a href="#">
-                  <img src="/img/preview_cap.png" alt="">
+                  <img src="/img/preview_cap.jpg" alt="">
                   <dl>
                     <dt class="preview-title">Aprende.tv</dt> 
                     <dt class="preview-desc">Web & Illustration</dt>
@@ -95,7 +102,7 @@
 
               <div class="grid-item" data-id="6">
                 <a href="#">
-                  <img src="/img/preview_ctv.png" alt="">
+                  <img src="/img/preview_ctv.jpg" alt="">
                   <dl>
                     <dt class="preview-title">Clasroom.tv</dt> 
                     <dt class="preview-desc">Web & Logo</dt>
@@ -105,7 +112,15 @@
 
             </div>
 
-            <div class="home-links">
+
+          </div>
+        </div>    
+      </div>
+
+      <div id="about" class="page" style="height:600px">
+        <div class="center-wrapper">
+          <div class="center-block">
+            <div class="home-links">
               <table style="width:100%">
                 <tr>
                   <td>
@@ -122,7 +137,7 @@
               </table>
             </div>
           </div>
-        </div>    
+        </div> 
       </div>
 
       <div id="showcase" class="overlay page" >
@@ -158,6 +173,9 @@
           </div> 
       </div>
 
+      
+      <script type="text/javascript" src="/js/jquery.js"></script>
+      <script type="text/javascript" src="/js/jquery.scrollTo-min.js"></script>
       <script type="text/javascript" src="/js/main.js"></script>
 
     </body>
