@@ -50,6 +50,7 @@ $(document).ready(function(){
         var window_top = $(window).scrollTop(); // the "12" should equal the margin-top value for nav.stick
     });
 
+
     /**
      * This part causes smooth scrolling using scrollto.js
      * We target all a tags inside the nav, and apply the scrollto.js to it.
@@ -73,7 +74,7 @@ $(document).ready(function(){
     } // this for loop fills the aArray with attribute href values
 
     var $curPage = aArray[0];
-    
+
     $(window).scroll(function(){
         var windowPos = $(window).scrollTop(); // get the offset of the window from the top of page
         var windowHeight = $(window).height(); // get the height of the window
