@@ -1,13 +1,260 @@
----
-layout: home
-title: Jugal Manjeshwar
----
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  Hello. You're looking at the source of a very small site with a lot of care in it.
 
-<div id="home">
-  <h1>Blog Posts</h1>
-  <ul class="posts">
-    {% for post in site.posts %}
-      <li><span>{{ post.date | date_to_string }}</span> &raquo; <a href="{{ post.url }}">{{ post.title }}</a></li>
-    {% endfor %}
-  </ul>
-</div>
+  There are three files that matter: this one, css/style.css, and js/main.js.
+  js/flock.js is the flock — a boids simulation drawn as ink strokes — and it
+  runs inside a Worker on an OffscreenCanvas so scrolling never waits on it.
+  The rules are separation, alignment, cohesion, and you.
+
+  No build step. No framework. No analytics. No third-party requests.
+  The previous version of this page (2013) is preserved untouched at /2013/.
+
+  Try: window.flock in the console · ?n=400 · ?seed=2013 · ?still · press t
+-->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jugal Manjeshwar</title>
+<meta name="description" content="Software engineer at Google since 2014. Before that I designed and built websites for people — an archive of them lives here.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf9f6">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111113">
+<link rel="icon" href="img/mark.svg" type="image/svg+xml">
+<link rel="canonical" href="https://nuterian.github.io/">
+<meta property="og:title" content="Jugal Manjeshwar">
+<meta property="og:description" content="Software engineer at Google. An archive of the websites I designed before that.">
+<meta property="og:url" content="https://nuterian.github.io/">
+<meta property="og:image" content="https://nuterian.github.io/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="fonts/geist.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/style.css">
+<script>
+  // Before first paint: mark that script runs, and restore a chosen theme so
+  // there is never a flash of the wrong one.
+  document.documentElement.classList.add('js');
+  try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+
+<a class="skip" href="#archive">Skip to the archive</a>
+
+<!-- The flock. Decorative: everything it does is also said in words. -->
+<canvas id="flock" aria-hidden="true"></canvas>
+<!-- Without script, a still of a seeded flock so the page is never blank. -->
+<!--STILL-->
+<svg class="still" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false"><line x1="706.5" y1="626.3" x2="702.4" y2="631.5" opacity="0.78"/><line x1="208.5" y1="466.0" x2="208.8" y2="469.9" opacity="0.80"/><line x1="217.1" y1="341.2" x2="213.3" y2="339.9" opacity="0.93"/><line x1="167.3" y1="345.6" x2="166.0" y2="340.4" opacity="0.75"/><line x1="175.7" y1="284.7" x2="175.9" y2="278.4" opacity="0.84"/><line x1="1196.8" y1="672.1" x2="1198.9" y2="677.3" opacity="0.76"/><line x1="878.0" y1="245.1" x2="877.0" y2="239.0" opacity="0.90"/><line x1="696.2" y1="392.7" x2="693.7" y2="396.3" opacity="0.91"/><line x1="220.9" y1="377.2" x2="220.6" y2="383.1" opacity="0.70"/><line x1="430.9" y1="395.9" x2="426.1" y2="395.2" opacity="0.72"/><line x1="861.1" y1="264.6" x2="860.3" y2="258.2" opacity="0.89"/><line x1="1078.5" y1="533.7" x2="1076.8" y2="529.6" opacity="0.78"/><line x1="647.1" y1="255.4" x2="646.9" y2="260.7" opacity="0.86"/><line x1="962.7" y1="611.8" x2="960.4" y2="617.1" opacity="0.90"/><line x1="220.0" y1="400.6" x2="217.1" y2="406.2" opacity="0.83"/><line x1="584.4" y1="493.2" x2="579.3" y2="493.9" opacity="0.77"/><line x1="720.9" y1="303.9" x2="726.7" y2="304.9" opacity="0.89"/><line x1="528.5" y1="141.6" x2="527.8" y2="146.4" opacity="0.70"/><line x1="387.3" y1="399.7" x2="383.3" y2="402.0" opacity="0.78"/><line x1="786.5" y1="453.7" x2="789.8" y2="457.0" opacity="0.77"/><line x1="519.2" y1="163.9" x2="519.6" y2="168.6" opacity="0.94"/><line x1="270.0" y1="353.4" x2="268.1" y2="358.7" opacity="0.72"/><line x1="1081.3" y1="331.6" x2="1085.9" y2="332.0" opacity="0.83"/><line x1="1349.0" y1="376.7" x2="1351.4" y2="371.6" opacity="0.69"/><line x1="532.4" y1="120.3" x2="532.8" y2="125.4" opacity="0.95"/><line x1="156.8" y1="310.8" x2="157.5" y2="305.8" opacity="0.81"/><line x1="685.5" y1="297.6" x2="681.7" y2="302.7" opacity="0.82"/><line x1="48.7" y1="710.8" x2="48.0" y2="716.2" opacity="0.75"/><line x1="1177.6" y1="677.5" x2="1181.2" y2="682.2" opacity="0.95"/><line x1="735.9" y1="282.2" x2="740.0" y2="280.8" opacity="0.74"/><line x1="675.4" y1="358.7" x2="672.0" y2="362.1" opacity="0.92"/><line x1="1154.9" y1="272.0" x2="1159.2" y2="273.0" opacity="0.86"/><line x1="715.7" y1="270.9" x2="719.4" y2="268.7" opacity="0.87"/><line x1="1182.3" y1="698.1" x2="1186.5" y2="702.8" opacity="0.91"/><line x1="640.0" y1="838.1" x2="634.9" y2="842.4" opacity="0.84"/><line x1="185.1" y1="478.4" x2="185.3" y2="484.8" opacity="0.74"/><line x1="411.7" y1="409.6" x2="410.8" y2="404.9" opacity="0.91"/><line x1="878.4" y1="461.5" x2="883.7" y2="458.5" opacity="0.92"/><line x1="1102.1" y1="331.1" x2="1107.3" y2="327.8" opacity="0.76"/><line x1="1285.1" y1="425.6" x2="1286.7" y2="421.5" opacity="0.79"/><line x1="1148.4" y1="303.8" x2="1153.3" y2="303.7" opacity="0.95"/><line x1="764.2" y1="458.2" x2="766.1" y2="463.1" opacity="0.85"/><line x1="1205.7" y1="586.4" x2="1206.7" y2="591.1" opacity="0.88"/><line x1="556.2" y1="335.1" x2="550.5" y2="339.0" opacity="0.80"/><line x1="1066.1" y1="314.1" x2="1071.0" y2="314.4" opacity="0.92"/><line x1="147.9" y1="331.3" x2="148.1" y2="325.7" opacity="0.76"/><line x1="548.2" y1="163.9" x2="546.4" y2="169.9" opacity="0.88"/><line x1="673.5" y1="270.6" x2="669.9" y2="275.8" opacity="0.88"/><line x1="350.8" y1="245.1" x2="355.8" y2="242.9" opacity="0.68"/><line x1="882.1" y1="440.3" x2="887.2" y2="437.4" opacity="0.72"/><line x1="1240.6" y1="530.7" x2="1238.6" y2="534.8" opacity="0.82"/><line x1="523.0" y1="225.4" x2="526.6" y2="228.2" opacity="0.73"/><line x1="559.5" y1="485.7" x2="555.5" y2="484.3" opacity="0.80"/><line x1="584.1" y1="470.9" x2="579.9" y2="472.3" opacity="0.75"/><line x1="331.0" y1="258.5" x2="335.0" y2="261.0" opacity="0.82"/><line x1="257.9" y1="381.8" x2="257.1" y2="386.9" opacity="0.79"/><line x1="208.9" y1="288.7" x2="204.8" y2="284.5" opacity="0.81"/><line x1="891.4" y1="416.8" x2="892.9" y2="412.8" opacity="0.83"/><line x1="178.3" y1="353.5" x2="174.7" y2="351.2" opacity="0.69"/><line x1="663.8" y1="311.2" x2="659.6" y2="314.8" opacity="0.72"/><line x1="231.6" y1="366.0" x2="226.5" y2="366.8" opacity="0.93"/><line x1="798.3" y1="487.5" x2="804.4" y2="489.3" opacity="0.76"/><line x1="1123.4" y1="561.9" x2="1119.8" y2="563.4" opacity="0.90"/><line x1="550.5" y1="133.3" x2="550.3" y2="139.5" opacity="0.75"/><line x1="206.4" y1="355.2" x2="202.9" y2="359.5" opacity="0.88"/><line x1="884.6" y1="601.3" x2="883.9" y2="605.4" opacity="0.70"/><line x1="1184.7" y1="546.7" x2="1185.4" y2="551.0" opacity="0.73"/><line x1="49.4" y1="688.3" x2="47.9" y2="693.2" opacity="0.76"/><line x1="697.7" y1="759.2" x2="697.7" y2="765.3" opacity="0.86"/><line x1="935.7" y1="642.3" x2="935.2" y2="648.8" opacity="0.72"/><line x1="1241.7" y1="593.0" x2="1240.6" y2="598.4" opacity="0.76"/><line x1="1162.1" y1="597.8" x2="1165.1" y2="601.7" opacity="0.68"/><line x1="1172.4" y1="102.5" x2="1171.0" y2="106.1" opacity="0.83"/><line x1="199.6" y1="381.0" x2="197.6" y2="386.2" opacity="0.77"/><line x1="1167.5" y1="293.4" x2="1172.6" y2="292.7" opacity="0.75"/><line x1="671.9" y1="773.7" x2="674.6" y2="778.0" opacity="0.92"/><line x1="1047.2" y1="301.8" x2="1051.3" y2="303.1" opacity="0.83"/><line x1="854.4" y1="292.4" x2="856.0" y2="286.9" opacity="0.85"/><line x1="1199.8" y1="349.3" x2="1205.1" y2="346.8" opacity="0.82"/><line x1="621.1" y1="249.2" x2="623.2" y2="253.7" opacity="0.78"/><line x1="1285.9" y1="452.6" x2="1289.6" y2="449.2" opacity="0.78"/><line x1="892.0" y1="583.1" x2="889.2" y2="586.5" opacity="0.72"/><line x1="231.9" y1="322.9" x2="227.5" y2="321.7" opacity="0.85"/><line x1="1205.6" y1="308.8" x2="1211.6" y2="306.9" opacity="0.74"/><line x1="1203.3" y1="382.8" x2="1208.8" y2="380.7" opacity="0.69"/><line x1="192.6" y1="354.5" x2="187.3" y2="351.1" opacity="0.91"/><line x1="853.2" y1="318.3" x2="853.9" y2="312.3" opacity="0.84"/><line x1="1247.7" y1="567.6" x2="1246.1" y2="573.3" opacity="0.79"/><line x1="223.4" y1="355.8" x2="220.4" y2="358.3" opacity="0.94"/><line x1="154.8" y1="276.1" x2="152.5" y2="271.3" opacity="0.82"/><line x1="566.0" y1="451.8" x2="559.7" y2="453.0" opacity="0.91"/><line x1="1081.9" y1="292.6" x2="1085.4" y2="294.9" opacity="0.79"/><line x1="305.9" y1="269.9" x2="310.2" y2="273.2" opacity="0.89"/><line x1="322.0" y1="228.9" x2="325.7" y2="226.5" opacity="0.76"/><line x1="982.6" y1="621.6" x2="980.6" y2="625.7" opacity="0.71"/><line x1="1165.4" y1="565.7" x2="1168.0" y2="571.1" opacity="0.74"/><line x1="1179.9" y1="650.5" x2="1180.6" y2="656.5" opacity="0.79"/><line x1="612.2" y1="840.2" x2="607.6" y2="839.6" opacity="0.78"/><line x1="734.8" y1="604.7" x2="732.9" y2="600.9" opacity="0.84"/><line x1="1189.8" y1="279.4" x2="1193.9" y2="276.8" opacity="0.69"/><line x1="453.7" y1="370.4" x2="449.9" y2="366.6" opacity="0.88"/><line x1="50.6" y1="731.4" x2="48.3" y2="736.8" opacity="0.73"/><line x1="1201.5" y1="648.4" x2="1201.8" y2="653.8" opacity="0.94"/><line x1="1300.6" y1="438.0" x2="1301.6" y2="433.0" opacity="0.71"/><line x1="892.6" y1="562.6" x2="889.8" y2="566.9" opacity="0.69"/><line x1="158.4" y1="797.9" x2="162.6" y2="796.2" opacity="0.92"/><line x1="208.0" y1="315.2" x2="205.4" y2="311.6" opacity="0.73"/><line x1="1354.1" y1="351.4" x2="1354.1" y2="345.5" opacity="0.87"/><line x1="626.1" y1="269.7" x2="626.1" y2="274.5" opacity="0.70"/><line x1="175.1" y1="322.0" x2="173.9" y2="317.2" opacity="0.86"/></svg>
+<!--/STILL-->
+
+<header class="hero" id="top">
+  <div class="hero-text" data-obstacle>
+    <h1>Jugal Manjeshwar</h1>
+    <p>Software engineer at Google since&nbsp;2014. Before that I&nbsp;designed and built websites for&nbsp;people — some of them are&nbsp;below.</p>
+    <ul class="hero-links" aria-label="Elsewhere">
+      <li><a href="https://github.com/nuterian" rel="me">GitHub</a></li>
+      <li><a href="https://www.linkedin.com/in/jugalm/" rel="me">LinkedIn</a></li>
+      <li><a href="#archive">Archive</a></li>
+    </ul>
+  </div>
+</header>
+
+<main id="main">
+  <section class="archive" id="archive" aria-labelledby="archive-title">
+    <header data-obstacle>
+      <h2 id="archive-title">Archive</h2>
+      <p class="meta mono"><time datetime="2012">2012</time> – <time datetime="2014">2014</time> · freelance web design</p>
+    </header>
+    <ol class="rows" data-obstacle data-obstacle-wide>
+
+      <li>
+        <a class="row" href="#golem" data-slug="golem">
+          <span class="num" aria-hidden="true">01</span>
+          <span class="name">Golem</span>
+          <span class="medium">Web</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </a>
+        <section class="sheet" id="golem" aria-label="Golem — full-length screenshot">
+          <a class="close" href="#archive" aria-label="Close">×</a>
+          <p class="ruler" aria-hidden="true">960 px — the width of the web in 2013</p>
+          <figure>
+            <picture>
+              <source type="image/avif" srcset="img/archive/golem-1.avif">
+              <source type="image/webp" srcset="img/archive/golem-1.webp">
+              <img src="2013/img/golem.png" width="960" height="1182" loading="lazy" decoding="async"
+                   alt="Golem domain aftermarket homepage: red logo with a golem mascot, a tabbed navigation (search, auction, buy, sell, escrow, park, check), a large domain search field, and tables of fresh domains, best deals and top sales in euros.">
+            </picture>
+            <figcaption>Golem · domain aftermarket · homepage</figcaption>
+          </figure>
+        </section>
+      </li>
+
+      <li>
+        <a class="row" href="#kidscerts" data-slug="kidscerts">
+          <span class="num" aria-hidden="true">02</span>
+          <span class="name">KidsCerts</span>
+          <span class="medium">Web &amp; Logo</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </a>
+        <section class="sheet" id="kidscerts" aria-label="KidsCerts — full-length screenshot">
+          <a class="close" href="#archive" aria-label="Close">×</a>
+          <p class="ruler" aria-hidden="true">960 px — the width of the web in 2013</p>
+          <figure>
+            <picture>
+              <source type="image/avif" srcset="img/archive/kidscerts-1.avif">
+              <source type="image/webp" srcset="img/archive/kidscerts-1.webp">
+              <img src="2013/img/kc.png" width="960" height="1731" loading="lazy" decoding="async"
+                   alt="KidsCerts landing page: ‘Create awards for kids in minutes’ beside an illustrated certificate, a three-step explainer (design, type, print) with a ribbon-sealed certificate, a testimonials carousel, and a footer with the KidsCerts logo.">
+            </picture>
+            <figcaption>KidsCerts · certificates for kids · landing page and logo</figcaption>
+          </figure>
+        </section>
+      </li>
+
+      <li>
+        <a class="row" href="#meditation-music" data-slug="meditation-music">
+          <span class="num" aria-hidden="true">03</span>
+          <span class="name">Meditation Music</span>
+          <span class="medium">Web &amp; Illustration</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </a>
+        <section class="sheet" id="meditation-music" aria-label="Meditation Music — screenshots">
+          <a class="close" href="#archive" aria-label="Close">×</a>
+          <p class="ruler" aria-hidden="true">960 px — the width of the web in 2013</p>
+          <figure>
+            <picture>
+              <source type="image/avif" srcset="img/archive/meditation-music-1.avif">
+              <source type="image/webp" srcset="img/archive/meditation-music-1.webp">
+              <img src="2013/img/mm1.png" width="960" height="525" loading="lazy" decoding="async"
+                   alt="Meditation Music player on a warm peach gradient: a round illustrated meditating-figure button with a timer reading 1:43, a quoted tip about meditation, and a volume slider.">
+            </picture>
+            <figcaption>Meditation Music · player</figcaption>
+          </figure>
+          <figure>
+            <picture>
+              <source type="image/avif" srcset="img/archive/meditation-music-2.avif">
+              <source type="image/webp" srcset="img/archive/meditation-music-2.webp">
+              <img src="2013/img/mm2.png" width="960" height="525" loading="lazy" decoding="async"
+                   alt="Meditation Music: a second screen of the same app.">
+            </picture>
+            <figcaption>Meditation Music · second screen</figcaption>
+          </figure>
+        </section>
+      </li>
+
+      <li>
+        <a class="row" href="#aprende-tv" data-slug="aprende-tv">
+          <span class="num" aria-hidden="true">04</span>
+          <span class="name">Aprende.tv</span>
+          <span class="medium">Web &amp; Illustration</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </a>
+        <section class="sheet" id="aprende-tv" aria-label="Aprende.tv — full-length screenshot">
+          <a class="close" href="#archive" aria-label="Close">×</a>
+          <p class="ruler" aria-hidden="true">960 px — the width of the web in 2013</p>
+          <figure>
+            <picture>
+              <source type="image/avif" srcset="img/archive/aprende-tv-1.avif">
+              <source type="image/webp" srcset="img/archive/aprende-tv-1.webp">
+              <img src="2013/img/cap.png" width="960" height="1029" loading="lazy" decoding="async"
+                   alt="Aprende.tv homepage in Spanish: a dark header with a featured course card and the headline ‘Cursos de Finanzas y Gestión Empresarial Online’, a row of illustrated course tiles, and a pricing section at US$90 and US$150.">
+            </picture>
+            <figcaption>Aprende.tv · online courses · homepage and illustrations</figcaption>
+          </figure>
+        </section>
+      </li>
+
+      <li>
+        <a class="row" href="#unlistr" data-slug="unlistr">
+          <span class="num" aria-hidden="true">05</span>
+          <span class="name">Unlistr</span>
+          <span class="medium">Web &amp; Illustration</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </a>
+        <section class="sheet" id="unlistr" aria-label="Unlistr — screenshots">
+          <a class="close" href="#archive" aria-label="Close">×</a>
+          <p class="ruler" aria-hidden="true">960 px — the width of the web in 2013</p>
+          <figure>
+            <picture>
+              <source type="image/avif" srcset="img/archive/unlistr-1.avif">
+              <source type="image/webp" srcset="img/archive/unlistr-1.webp">
+              <img src="2013/img/un1.png" width="960" height="700" loading="lazy" decoding="async"
+                   alt="Unlistr illustration: an airmail envelope sealed inside a glass dome, with the wordmark below.">
+            </picture>
+            <figcaption>Unlistr · illustration</figcaption>
+          </figure>
+          <figure>
+            <picture>
+              <source type="image/avif" srcset="img/archive/unlistr-2.avif">
+              <source type="image/webp" srcset="img/archive/unlistr-2.webp">
+              <img src="2013/img/un2.png" width="960" height="569" loading="lazy" decoding="async"
+                   alt="Unlistr landing page: ‘Your inbox. Trimmed + simplified’, a green Download Now button for Windows, the glass-dome illustration, and three feature blurbs.">
+            </picture>
+            <figcaption>Unlistr · landing page</figcaption>
+          </figure>
+        </section>
+      </li>
+
+      <li>
+        <a class="row" href="#classroom-tv" data-slug="classroom-tv">
+          <span class="num" aria-hidden="true">06</span>
+          <span class="name">Classroom.tv</span>
+          <span class="medium">Web &amp; Logo</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </a>
+        <section class="sheet" id="classroom-tv" aria-label="Classroom.tv — screenshots">
+          <a class="close" href="#archive" aria-label="Close">×</a>
+          <p class="ruler" aria-hidden="true">960 px — the width of the web in 2013</p>
+          <figure>
+            <picture>
+              <source type="image/avif" srcset="img/archive/classroom-tv-1.avif">
+              <source type="image/webp" srcset="img/archive/classroom-tv-1.webp">
+              <img src="2013/img/ctv1.png" width="960" height="366" loading="lazy" decoding="async"
+                   alt="Classroom.tv logo: the wordmark beside a small blue screen icon.">
+            </picture>
+            <figcaption>Classroom.tv · logo</figcaption>
+          </figure>
+          <figure>
+            <picture>
+              <source type="image/avif" srcset="img/archive/classroom-tv-2.avif">
+              <source type="image/webp" srcset="img/archive/classroom-tv-2.webp">
+              <img src="2013/img/ctv2.png" width="960" height="1360" loading="lazy" decoding="async"
+                   alt="Classroom.tv homepage: a photo hero promising thousands of free video lectures, a search bar with popular tags, three feature icons (curated classes, social participation, self-assessment), and a section for teachers.">
+            </picture>
+            <figcaption>Classroom.tv · homepage</figcaption>
+          </figure>
+        </section>
+      </li>
+
+    </ol>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <p data-obstacle data-obstacle-wide>
+    <span>Handcrafted by Jugal, <time datetime="2013">2013</time> <span class="arrow" aria-hidden="true">→</span> <time datetime="2026">2026</time></span>
+    <button class="dot" id="theme-toggle" aria-label="Theme: system. Switch theme." title="Switch theme (t)"></button>
+    <a href="2013/">previous version</a>
+  </p>
+</footer>
+
+<!-- Script moves a .sheet in here and opens it modally. -->
+<dialog id="sheet" aria-label="Archive">
+  <div class="sheet-bar">
+    <span class="title" id="sheet-title"></span>
+    <button type="button" id="sheet-prev" aria-label="Previous project (←)">←</button>
+    <button type="button" id="sheet-next" aria-label="Next project (→)">→</button>
+    <button type="button" id="sheet-close" aria-label="Close (Esc)">×</button>
+  </div>
+</dialog>
+
+<!-- Hover preview for the archive rows (pointer devices only). -->
+<div class="preview" id="preview" aria-hidden="true"><img alt="" width="640" height="400" decoding="async"></div>
+
+</body>
+</html>

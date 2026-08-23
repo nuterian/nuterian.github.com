@@ -1,0 +1,19 @@
+{
+  "name": "nuterian-site-tools",
+  "private": true,
+  "type": "module",
+  "description": "Dev-only tooling for nuterian.github.io. Nothing here ships.",
+  "scripts": {
+    "fonts": "node fonts.mjs",
+    "images": "node images.mjs",
+    "check": "node check.mjs",
+    "build": "npm run fonts && npm run images"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "lighthouse": "^12.2.0",
+    "playwright": "^1.48.0",
+    "sharp": "^0.33.5",
+    "subset-font": "^2.3.0"
+  }
+}

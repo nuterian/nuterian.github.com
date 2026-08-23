@@ -1,0 +1,124 @@
+/*
+ * check.mjs — the quality gate. Fails (exit 1) if the site drops below the bar:
+ *   • axe-core: zero violations, light & dark, desktop & phone, home + open sheet + 404
+ *   • Lighthouse: 100 / 100 / 100 / 100 (perf, a11y, best-practices, seo) on desktop & mobile
+ *   • Budget: first load (HTML + CSS + JS + fonts + favicon) < 100 KB over the wire (gzip)
+ *   • Console: no errors, no failed requests, no third-party requests
+ *   • Motion: prefers-reduced-motion renders a still (no animation frames)
+ * Usage: node check.mjs [baseURL]   (default http://localhost:4173)
+ */
+import { chromium, devices } from 'playwright';
+import AxeBuilder from '@axe-core/playwright';
+import lighthouse from 'lighthouse';
+import * as LH from 'lighthouse/core/config/constants.js';
+import { gzipSync } from 'node:zlib';
+import { mkdirSync } from 'node:fs';
+
+const BASE = process.argv[2] || 'http://localhost:4174';
+const OUT = process.env.OUT || new URL('./out/', import.meta.url).pathname;
+mkdirSync(OUT, { recursive: true });
+let failures = 0;
+const fail = (m) => { failures++; console.log('  ✗', m); };
+const ok = (m) => console.log('  ✓', m);
+
+const browser = await chromium.launch({ args: ['--remote-debugging-port=9222'] });
+
+// --- axe ------------------------------------------------------------------
+console.log('\naxe');
+for (const scheme of ['light', 'dark']) {
+  for (const [label, opts] of [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', devices['iPhone 13']]]) {
+    const ctx = await browser.newContext({ ...opts, colorScheme: scheme });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    const thirdParty = [];
+    page.on('request', r => { if (!r.url().startsWith(BASE) && !r.url().startsWith('data:')) thirdParty.push(r.url()); });
+    page.on('requestfailed', r => errors.push('request failed ' + r.url()));
+
+    for (const path of ['/', '/#kidscerts', '/404.html']) {
+      await page.goto(BASE + path + (path.includes('#') ? '' : '?seed=1'), { waitUntil: 'networkidle' });
+      await page.waitForTimeout(700);
+      const res = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze();
+      const v = res.violations;
+      if (v.length) { fail(`${scheme}/${label} ${path}: ${v.length} violation(s)`); v.forEach(x => console.log('     -', x.id, x.impact, x.nodes.length, 'node(s):', x.nodes[0]?.html?.slice(0, 100))); }
+      else ok(`${scheme}/${label} ${path}: 0 violations (${res.passes.length} rules passed)`);
+    }
+    if (errors.length) fail(`${scheme}/${label}: console/request errors: ${errors.join(' | ')}`);
+    if (thirdParty.length) fail(`${scheme}/${label}: third-party requests: ${thirdParty.join(', ')}`);
+    await page.screenshot({ path: `${OUT}/${scheme}-${label}.png` });
+    await ctx.close();
+  }
+}
+
+// --- reduced motion → still ------------------------------------------------
+console.log('\nmotion');
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+  const page = await ctx.newPage();
+  await page.goto(BASE + '/?seed=1'); await page.waitForTimeout(1200);
+  const a = await page.screenshot({ fullPage: false }); await page.waitForTimeout(800);
+  const b = await page.screenshot({ fullPage: false });
+  if (Buffer.compare(a, b) === 0) ok('reduced motion: frame is still'); else fail('reduced motion: the canvas is animating');
+  await ctx.close();
+}
+
+// --- no script ------------------------------------------------------------
+console.log('\nno script');
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, javaScriptEnabled: false });
+  const page = await ctx.newPage();
+  await page.goto(BASE + '/#unlistr'); await page.waitForTimeout(300);
+  const stillVisible = await page.evaluate(() => getComputedStyle(document.querySelector('.still')).display !== 'none');
+  const sheetVisible = await page.evaluate(() => getComputedStyle(document.getElementById('unlistr')).display !== 'none');
+  stillVisible ? ok('no-js: inline still is shown') : fail('no-js: still hidden');
+  sheetVisible ? ok('no-js: #unlistr opens via :target') : fail('no-js: sheet does not open');
+  await page.screenshot({ path: `${OUT}/nojs.png` });
+  await ctx.close();
+}
+
+// --- budget ---------------------------------------------------------------
+console.log('\nbudget');
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  const sizes = [];
+  page.on('response', async r => {
+    const u = r.url(); if (!u.startsWith(BASE)) return;
+    try { const body = await r.body(); const gz = gzipSync(body).length; sizes.push({ u: u.replace(BASE, ''), raw: body.length, gz }); } catch {}
+  });
+  await page.goto(BASE + '/?seed=1', { waitUntil: 'networkidle' }); await page.waitForTimeout(500);
+  const firstLoad = sizes.filter(s => !s.u.includes('/img/archive/'));
+  const total = firstLoad.reduce((a, s) => a + Math.min(s.raw, s.gz), 0);
+  firstLoad.forEach(s => console.log(`     ${String(Math.min(s.raw, s.gz)).padStart(6)} B  ${s.u}`));
+  total < 100 * 1024 ? ok(`first load ${(total / 1024).toFixed(1)} KB (gzip) < 100 KB`) : fail(`first load ${(total / 1024).toFixed(1)} KB ≥ 100 KB`);
+  await ctx.close();
+}
+
+// --- Lighthouse -----------------------------------------------------------
+console.log('\nlighthouse');
+for (const formFactor of ['desktop', 'mobile']) {
+  const r = await lighthouse(BASE + '/', {
+    port: 9222, output: 'json', logLevel: 'silent',
+    onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'],
+    formFactor,
+    screenEmulation: formFactor === 'desktop' ? { mobile: false, width: 1440, height: 900, deviceScaleFactor: 1, disabled: false } : LH.screenEmulationMetrics.mobile,
+    throttling: formFactor === 'desktop' ? LH.throttling.desktopDense4G : LH.throttling.mobileSlow4G,
+    emulatedUserAgent: formFactor === 'desktop' ? LH.userAgents.desktop : LH.userAgents.mobile,
+  });
+  const cats = r.lhr.categories;
+  const scores = Object.fromEntries(Object.entries(cats).map(([k, v]) => [k, Math.round(v.score * 100)]));
+  const line = Object.entries(scores).map(([k, v]) => `${k} ${v}`).join(' · ');
+  const min = Math.min(...Object.values(scores));
+  min === 100 ? ok(`${formFactor}: ${line}`) : fail(`${formFactor}: ${line}`);
+  if (min < 100) for (const [k, v] of Object.entries(cats)) if (v.score < 1) {
+    const bad = v.auditRefs.map(a => r.lhr.audits[a.id]).filter(a => a.score !== null && a.score < 1 && a.scoreDisplayMode !== 'informative');
+    bad.forEach(a => console.log(`     - [${k}] ${a.id}: ${a.displayValue || ''} ${a.title}`));
+  }
+  const m = r.lhr.audits.metrics?.details?.items?.[0];
+  if (m) console.log(`     FCP ${m.firstContentfulPaint}ms · LCP ${m.largestContentfulPaint}ms · TBT ${m.totalBlockingTime}ms · CLS ${m.cumulativeLayoutShift}`);
+}
+
+await browser.close();
+console.log(failures ? `\n${failures} failure(s)` : '\nall green');
+process.exit(failures ? 1 : 0);

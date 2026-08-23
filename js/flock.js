@@ -1,0 +1,517 @@
+/*
+ * flock.js — the flock.
+ *
+ * A small boids simulation plus the renderer that draws it as ink strokes.
+ * It is deliberately pure: no DOM, no globals. The same module runs inside a
+ * Worker driving an OffscreenCanvas (see flock.worker.js) or on the main thread
+ * when that isn't available (see main.js). Everything talks to it through
+ * `Runner.handle(message)`.
+ *
+ * Rules, in order of how much they matter:
+ *   separation  — don't crowd your neighbours
+ *   alignment   — fly the way they fly
+ *   cohesion    — stay with them
+ *   you         — the pointer repels; whatever you hover attracts
+ *
+ * Modes: 'drift' (default), 'mark' (assemble into the 2013 jm mark),
+ * 'snow' (December only — the first commit on this site was "Add snow").
+ *
+ * Units: CSS pixels and seconds. The simulation advances with a fixed
+ * timestep so it behaves identically at 30, 60 or 120 Hz.
+ */
+
+import { MARK, MARK_ASPECT } from './mark.js';
+export { MARK, MARK_ASPECT };
+
+export const STEP = 1 / 60;            // fixed simulation step
+const MAX_STEPS = 4;                   // per frame, before we drop time instead
+
+// Tunables. These are the "feel" — change with care and with a screenshot.
+export const DEFAULTS = {
+  perception: 48,     // px — how far a boid can see its neighbours
+  separation: 24,     // px — personal space
+  cruise: 34,         // px/s — speed the flock relaxes to
+  maxSpeed: 110,      // px/s — absolute cap in drift mode
+  maxForce: 120,      // px/s² — steering cap
+  wSeparation: 1.8,
+  wAlignment: 0.8,
+  wCohesion: 0.35,
+  wWander: 0.5,
+  pointerRadius: 150, // px — how close before the flock minds you
+  pointerPush: 260,   // px/s² — how firmly
+  edge: 110,          // px — soft margin before the viewport edge
+};
+
+// Deterministic PRNG (mulberry32). A seed makes the flock reproducible, which
+// makes the OG image reproducible — and lets the curious share a `?seed=`.
+export function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Sample the pixels of some rendered text into a point cloud. Used by the 404
+// page; the mark on the home page is pre-sampled (mark.js) so it needs no font.
+export function textPoints(ctx2d, text, font, pitch = 6) {
+  const c = ctx2d.canvas;
+  c.width = 600; c.height = 200;
+  ctx2d.font = font;
+  ctx2d.textBaseline = 'middle';
+  ctx2d.textAlign = 'center';
+  ctx2d.fillStyle = '#fff';
+  ctx2d.fillText(text, 300, 100);
+  const { data } = ctx2d.getImageData(0, 0, 600, 200);
+  const raw = [];
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (let y = pitch / 2; y < 200; y += pitch) {
+    for (let x = pitch / 2; x < 600; x += pitch) {
+      if (data[((y | 0) * 600 + (x | 0)) * 4 + 3] > 120) {
+        raw.push(x, y);
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+    }
+  }
+  // Normalise to the glyphs' own bounding box, as percentages (like MARK).
+  const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
+  const points = [];
+  for (let i = 0; i < raw.length; i += 2) points.push(Math.round((raw[i] - x0) / w * 100), Math.round((raw[i + 1] - y0) / h * 100));
+  return { points, aspect: w / h };
+}
+
+export class Flock {
+  constructor(opts = {}) {
+    this.p = { ...DEFAULTS, ...opts.params };
+    this.w = opts.width || 1;
+    this.h = opts.height || 1;
+    this.random = rng(opts.seed ?? (Date.now() & 0xffff));
+    this.time = 0;
+    this.mode = 'drift';
+    this.pointer = { x: -1e4, y: -1e4, on: false, speed: 0 };
+    this.attractors = [];   // {x, y, r, k, until}
+    this.obstacles = [];    // {x, y, w, h} soft — the flock avoids the text
+    this.wind = { x: 0, y: 0 };
+    this.gravity = { x: 0, y: 0 }; // from device tilt
+    this.perches = null;    // {x0,y0,x1,y1} — a wire to sit on
+    this.traces = [];       // {i, x0,y0,x1,y1, t0, dur}
+    this.formation = null;  // {points, aspect, box:{x,y,w,h}, since, hold}
+    this.tempo = 1;         // global speed multiplier (dims when a sheet is open)
+    this.setCount(opts.count || 120);
+  }
+
+  setCount(n) {
+    n = Math.max(8, Math.min(600, n | 0));
+    const old = this.n || 0;
+    const grow = (arr, fill) => {
+      const next = new Float32Array(n);
+      if (arr) next.set(arr.subarray(0, Math.min(old, n)));
+      for (let i = old; i < n; i++) next[i] = fill(i);
+      return next;
+    };
+    this.x = grow(this.x, () => this.random() * this.w);
+    this.y = grow(this.y, () => this.random() * this.h);
+    this.vx = grow(this.vx, () => (this.random() - 0.5) * this.p.cruise);
+    this.vy = grow(this.vy, () => (this.random() - 0.5) * this.p.cruise);
+    this.ph = grow(this.ph, () => this.random() * Math.PI * 2); // personal phase
+    this.op = grow(this.op, () => 0.55 + this.random() * 0.45);  // personal opacity
+    const role = new Uint8Array(n); if (this.role) role.set(this.role.subarray(0, Math.min(old, n)));
+    this.role = role; // 0 free, 1 perching, 2 tracing
+    this.fx = new Float32Array(n);
+    this.fy = new Float32Array(n);
+    this.n = n;
+    this._acc = 0;
+    if (this.formation) this._assign();
+  }
+
+  resize(w, h) {
+    const sx = w / this.w, sy = h / this.h;
+    for (let i = 0; i < this.n; i++) { this.x[i] *= sx; this.y[i] *= sy; }
+    this.w = w; this.h = h;
+  }
+
+  // --- Inputs from the page -------------------------------------------------
+
+  setPointer(x, y, on = true) {
+    if (on) {
+      const dx = x - this.pointer.x, dy = y - this.pointer.y;
+      this.pointer.speed = this.pointer.on ? Math.hypot(dx, dy) : 0;
+    }
+    this.pointer.x = x; this.pointer.y = y; this.pointer.on = on;
+  }
+
+  // Keyed attractors replace themselves, so a moving hover target is one
+  // attractor that moves, not a trail of stale ones.
+  attract(x, y, r = 90, k = 1, life = 0.8, id = null) {
+    if (id) this.attractors = this.attractors.filter(a => a.id !== id);
+    if (k > 0 && life > 0) this.attractors.push({ id, x, y, r, k, until: this.time + life });
+  }
+
+  // Assemble into a shape. `box` is where it goes, in CSS px.
+  form(points, aspect, box, hold = 0.8) {
+    this.formation = { points, aspect, box, since: this.time, hold, released: false };
+    this.mode = 'mark';
+    this._assign();
+  }
+
+  release() {
+    if (this.formation) {
+      // Let go softly: a small outward breath from the mark's centre, with a
+      // personal nudge, so the shape dissolves instead of sitting as a clump.
+      const b = this.formation.box, cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      for (let i = 0; i < this.n; i++) {
+        const dx = this.x[i] - cx, dy = this.y[i] - cy, d = Math.hypot(dx, dy) || 1;
+        const a = this.random() * Math.PI * 2, k = 18 + this.random() * 22;
+        this.vx[i] += dx / d * 26 + Math.cos(a) * k;
+        this.vy[i] += dy / d * 26 + Math.sin(a) * k;
+      }
+    }
+    this.mode = this._season === 'snow' ? 'snow' : 'drift';
+    this.formation = null;
+    this.tgt = null;
+  }
+
+  season(name) { // 'snow' | null
+    this._season = name;
+    if (this.mode !== 'mark') this.mode = name === 'snow' ? 'snow' : 'drift';
+  }
+
+  perch(segment) { // {x0,y0,x1,y1} or null
+    this.perches = segment;
+    for (let i = 0; i < this.n; i++) if (this.role[i] === 1) this.role[i] = 0;
+    if (!segment) return;
+    // A dozen birds on the wire, spaced with a little irregularity.
+    const k = Math.min(14, this.n >> 3);
+    const picked = new Set();
+    while (picked.size < k) picked.add((this.random() * this.n) | 0);
+    this.perchSlots = [];
+    let j = 0;
+    for (const i of picked) {
+      this.role[i] = 1;
+      this.perchSlots.push({ i, t: (j + 0.5) / k + (this.random() - 0.5) * 0.4 / k });
+      j++;
+    }
+  }
+
+  // Send a few boids along a segment (a link's underline, the footer arrow).
+  trace(x0, y0, x1, y1, count = 5, dur = 0.9) {
+    // The nearest free boids go, and the tracing clock starts when they arrive.
+    const near = [];
+    for (let i = 0; i < this.n; i++) if (!this.role[i]) near.push([Math.hypot(this.x[i] - x0, this.y[i] - y0), i]);
+    near.sort((a, b) => a[0] - b[0]);
+    for (let k = 0; k < Math.min(count, near.length); k++) {
+      const [d, i] = near[k];
+      this.role[i] = 2;
+      this.traces.push({ i, x0, y0, x1, y1, t0: this.time + d / 700 + k * 0.06, dur });
+    }
+  }
+
+  // --- Simulation -----------------------------------------------------------
+
+  _assign() {
+    const f = this.formation; if (!f) return;
+    const pts = f.points, m = pts.length / 2;
+    this.tgt = new Float32Array(this.n * 2);
+    // Spread boids across the mark's points; extra boids double up.
+    const order = [];
+    for (let k = 0; k < m; k++) order.push(k);
+    for (let k = m - 1; k > 0; k--) { const j = (this.random() * (k + 1)) | 0; [order[k], order[j]] = [order[j], order[k]]; }
+    for (let i = 0; i < this.n; i++) {
+      const k = order[i % m];
+      this.tgt[i * 2] = f.box.x + (pts[k * 2] / 100) * f.box.w;
+      this.tgt[i * 2 + 1] = f.box.y + (pts[k * 2 + 1] / 100) * f.box.h;
+    }
+  }
+
+  advance(dt) {
+    this._acc += Math.min(dt, STEP * MAX_STEPS);
+    while (this._acc >= STEP) { this._step(STEP); this._acc -= STEP; }
+  }
+
+  _step(dt) {
+    const { n, x, y, vx, vy, fx, fy, p } = this;
+    this.time += dt;
+    const t = this.time;
+    const mode = this.mode;
+    fx.fill(0); fy.fill(0);
+
+    // Spatial hash: one bucket per perception radius.
+    const cell = p.perception;
+    const cols = Math.max(1, Math.ceil(this.w / cell)), rows = Math.max(1, Math.ceil(this.h / cell));
+    const heads = new Int32Array(cols * rows).fill(-1);
+    const next = new Int32Array(n);
+    for (let i = 0; i < n; i++) {
+      const cx = Math.min(cols - 1, Math.max(0, (x[i] / cell) | 0));
+      const cy = Math.min(rows - 1, Math.max(0, (y[i] / cell) | 0));
+      const b = cy * cols + cx;
+      next[i] = heads[b]; heads[b] = i;
+    }
+
+    const per2 = p.perception * p.perception, sep2 = p.separation * p.separation;
+    const flockOn = mode === 'drift';
+    const maxF = p.maxForce;
+
+    for (let i = 0; i < n; i++) {
+      const xi = x[i], yi = y[i];
+      let sx = 0, sy = 0, ax = 0, ay = 0, cx = 0, cy = 0, cnt = 0;
+      if (flockOn || mode === 'snow') {
+        const gx = (xi / cell) | 0, gy = (yi / cell) | 0;
+        for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+          const bx = gx + ox, by = gy + oy;
+          if (bx < 0 || by < 0 || bx >= cols || by >= rows) continue;
+          for (let j = heads[by * cols + bx]; j !== -1; j = next[j]) {
+            if (j === i) continue;
+            const dx = x[j] - xi, dy = y[j] - yi, d2 = dx * dx + dy * dy;
+            if (d2 > per2 || d2 === 0) continue;
+            if (d2 < sep2) { const d = Math.sqrt(d2); sx -= dx / d * (1 - d / p.separation); sy -= dy / d * (1 - d / p.separation); }
+            ax += vx[j]; ay += vy[j]; cx += dx; cy += dy; cnt++;
+          }
+        }
+      }
+      let Fx = 0, Fy = 0;
+      if (cnt) {
+        ax /= cnt; ay /= cnt; cx /= cnt; cy /= cnt;
+        const al = Math.hypot(ax, ay) || 1;
+        const wA = mode === 'snow' ? 0 : p.wAlignment, wC = mode === 'snow' ? 0 : p.wCohesion;
+        Fx += (ax / al * p.cruise - vx[i]) * wA + cx * wC;
+        Fy += (ay / al * p.cruise - vy[i]) * wA + cy * wC;
+      }
+      Fx += sx * p.wSeparation * 90; Fy += sy * p.wSeparation * 90;
+
+      // Wander: a slow personal sine so nobody flies perfectly straight.
+      const ph = this.ph[i];
+      Fx += Math.cos(t * 0.9 + ph) * p.wWander * 40;
+      Fy += Math.sin(t * 0.7 + ph * 1.3) * p.wWander * 40;
+
+      // Cruise: relax speed toward cruise (or drift slowly in snow).
+      const sp = Math.hypot(vx[i], vy[i]) || 1e-3;
+      const want = mode === 'snow' ? p.cruise * 0.5 : p.cruise;
+      const k = (want - sp) * 0.8;
+      Fx += vx[i] / sp * k; Fy += vy[i] / sp * k;
+
+      // You.
+      if (this.pointer.on) {
+        const dx = xi - this.pointer.x, dy = yi - this.pointer.y, d = Math.hypot(dx, dy);
+        if (d < p.pointerRadius && d > 0.01) {
+          const s = 1 - d / p.pointerRadius;
+          const push = p.pointerPush * s * s * (1 + Math.min(this.pointer.speed, 40) * 0.03);
+          Fx += dx / d * push; Fy += dy / d * push;
+        }
+      }
+      // Things you hover.
+      for (const a of this.attractors) {
+        const dx = a.x - xi, dy = a.y - yi, d = Math.hypot(dx, dy) || 1;
+        if (d < a.r * 4) {
+          // Arrive: strong far away, gentle near, orbit rather than pile up.
+          const s = Math.min(1, d / a.r);
+          Fx += dx / d * 140 * a.k * s + (-dy / d) * 30 * a.k * (1 - s);
+          Fy += dy / d * 140 * a.k * s + (dx / d) * 30 * a.k * (1 - s);
+        }
+      }
+      // Obstacles: the flock respects the text.
+      for (const o of this.obstacles) {
+        const m = 28;
+        if (xi > o.x - m && xi < o.x + o.w + m && yi > o.y - m && yi < o.y + o.h + m) {
+          const lx = xi - (o.x - m), rx = (o.x + o.w + m) - xi, ty = yi - (o.y - m), by = (o.y + o.h + m) - yi;
+          const mn = Math.min(lx, rx, ty, by);
+          const push = 220 * Math.max(0.3, 1 - mn / (m + 8)); // never pulls inward, even deep inside
+          if (mn === lx) Fx -= push; else if (mn === rx) Fx += push; else if (mn === ty) Fy -= push; else Fy += push;
+        }
+      }
+      // Edges: turn back softly, never bounce.
+      const e = p.edge;
+      if (xi < e) Fx += (e - xi) / e * 160; else if (xi > this.w - e) Fx -= (xi - (this.w - e)) / e * 160;
+      if (yi < e) Fy += (e - yi) / e * 160; else if (yi > this.h - e) Fy -= (yi - (this.h - e)) / e * 160;
+
+      // Weather.
+      Fx += this.wind.x; Fy += this.wind.y;
+      Fx += this.gravity.x; Fy += this.gravity.y;
+      if (mode === 'snow') { Fy += 26; Fx += Math.sin(t * 1.4 + ph) * 18; }
+
+      // Formation: arrive at your assigned point in the mark.
+      if (mode === 'mark' && this.tgt) {
+        const tx = this.tgt[i * 2], ty = this.tgt[i * 2 + 1];
+        const dx = tx - xi, dy = ty - yi, d = Math.hypot(dx, dy) || 1e-3;
+        const speed = Math.min(d * 3.2, 420);
+        Fx = (dx / d * speed - vx[i]) * 6; Fy = (dy / d * speed - vy[i]) * 6;
+        if (d < 2) { Fx -= vx[i] * 12; Fy -= vy[i] * 12; }
+      }
+
+      // Role overrides: perching and tracing.
+      if (this.role[i] === 1 && this.perches) {
+        const s = this.perchSlots.find(q => q.i === i) || { t: 0.5 };
+        const tx = this.perches.x0 + (this.perches.x1 - this.perches.x0) * s.t;
+        const ty = this.perches.y0 + (this.perches.y1 - this.perches.y0) * s.t;
+        const dx = tx - xi, dy = ty - yi, d = Math.hypot(dx, dy) || 1e-3;
+        const speed = Math.min(d * 2.5, 260);
+        Fx = (dx / d * speed - vx[i]) * 5; Fy = (dy / d * speed - vy[i]) * 5;
+        if (d < 1.5) { Fx -= vx[i] * 14; Fy -= vy[i] * 14 - Math.sin(t * 3 + ph) * 2; }
+      }
+
+      // Clamp steering.
+      const fm = Math.hypot(Fx, Fy);
+      const cap = mode === 'mark' || this.role[i] ? 2600 : maxF * 4;
+      if (fm > cap) { Fx *= cap / fm; Fy *= cap / fm; }
+      fx[i] = Fx; fy[i] = Fy;
+    }
+
+    // Traces run on their own clock.
+    for (let k = this.traces.length - 1; k >= 0; k--) {
+      const tr = this.traces[k];
+      const u = (t - tr.t0) / tr.dur;
+      if (u > 1.15) { this.role[tr.i] = 0; this.traces.splice(k, 1); continue; }
+      // Before the clock starts, fly to the start; then ease along; then overshoot off the end.
+      const e = u < 0 ? 0 : u < 1 ? u * u * (3 - 2 * u) : 1 + (u - 1) * 1.5;
+      const tx = tr.x0 + (tr.x1 - tr.x0) * e, ty = tr.y0 + (tr.y1 - tr.y0) * e + Math.sin(u * 9 + tr.i) * 1.2;
+      const i = tr.i, dx = tx - x[i], dy = ty - y[i], d = Math.hypot(dx, dy) || 1e-3;
+      const speed = Math.min(d * 8, 900);
+      fx[i] = (dx / d * speed - vx[i]) * 10; fy[i] = (dy / d * speed - vy[i]) * 10;
+    }
+
+    // Integrate.
+    const tempo = this.tempo;
+    const vmax = mode === 'mark' ? 520 : this.pointer.on ? p.maxSpeed * 2.2 : p.maxSpeed;
+    for (let i = 0; i < n; i++) {
+      vx[i] += fx[i] * dt; vy[i] += fy[i] * dt;
+      let sp = Math.hypot(vx[i], vy[i]);
+      const cap = this.role[i] === 2 ? 900 : this.role[i] === 1 ? 320 : vmax;
+      if (sp > cap) { vx[i] *= cap / sp; vy[i] *= cap / sp; sp = cap; }
+      const tp = this.role[i] ? 1 : tempo; // birds with a job aren't slowed by the mood
+      x[i] += vx[i] * dt * tp; y[i] += vy[i] * dt * tp;
+      // Snow wraps; everything else is kept inside by the edge force.
+      if (mode === 'snow' && y[i] > this.h + 8) { y[i] = -8; x[i] = this.random() * this.w; }
+      if (x[i] < -20) x[i] = -20; else if (x[i] > this.w + 20) x[i] = this.w + 20;
+      if (y[i] < -20) y[i] = -20; else if (y[i] > this.h + 20 && mode !== 'snow') y[i] = this.h + 20;
+    }
+
+    // Housekeeping.
+    this.wind.x *= 0.92; this.wind.y *= 0.92;
+    this.pointer.speed *= 0.85;
+    if (this.attractors.length) this.attractors = this.attractors.filter(a => a.until > t);
+    const f = this.formation;
+    if (f && f.hold > 0 && t - f.since > f.hold + 1.4) this.release();
+  }
+
+  // --- Rendering ------------------------------------------------------------
+  // Strokes stretch with speed and shrink to dots at rest, so the flock's mood
+  // is legible. Width matches the stem of the body type so text and flock read
+  // as one instrument.
+  render(ctx, { color, alpha = 1, width = 1.25, dpr = 1, w, h, clear = true }) {
+    if (clear) ctx.clearRect(0, 0, w * dpr, h * dpr);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.lineCap = 'round';
+    ctx.lineWidth = width;
+    ctx.strokeStyle = color;
+    const { n, x, y, vx, vy, op } = this;
+    const near = this.pointer.on ? this.pointer : null;
+    // Batch by opacity bucket so we set globalAlpha rarely.
+    const buckets = 6;
+    for (let b = 0; b < buckets; b++) {
+      const lo = b / buckets, hi = (b + 1) / buckets;
+      ctx.globalAlpha = alpha * (0.35 + ((lo + hi) / 2) * 0.6);
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        let o = op[i];
+        if (near) { const d = Math.hypot(x[i] - near.x, y[i] - near.y); if (d < 220) o = Math.min(1, o + (1 - d / 220) * 0.4); }
+        if (o < lo || o >= hi) continue;
+        const sp = Math.hypot(vx[i], vy[i]);
+        let len = Math.min(18, 2.5 + sp * 0.085);
+        let ux = sp > 0.01 ? vx[i] / sp : Math.cos(this.ph[i]);
+        let uy = sp > 0.01 ? vy[i] / sp : Math.sin(this.ph[i]);
+        if (this.role[i] === 1 && sp < 6) { ux = 0; uy = 1; len = 4; } // perched: upright, like a bird on a wire
+        ctx.moveTo(x[i], y[i]);
+        ctx.lineTo(x[i] - ux * len, y[i] - uy * len);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+/*
+ * Runner: owns a canvas (Offscreen or not), a Flock, and the frame loop.
+ * Adapts the flock size to measured frame time rather than guessing from the
+ * user agent: a slow phone gets fewer boids, a fast desktop gets the full count.
+ */
+export class Runner {
+  constructor(canvas, { raf = globalThis.requestAnimationFrame.bind(globalThis) } = {}) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
+    this.raf = raf;
+    this.flock = null;
+    this.style = { color: '#888', alpha: 1, width: 1.25 };
+    this.dpr = 1; this.w = 1; this.h = 1;
+    this.target = 120; this.frames = 0; this.accum = 0; this.last = 0;
+    this.still = false; this.running = false; this.onstats = null;
+  }
+
+  handle(m) {
+    const f = this.flock;
+    switch (m.type) {
+      case 'init': {
+        this.dpr = m.dpr; this.w = m.w; this.h = m.h; this.target = m.count; this.still = !!m.still;
+        this.canvas.width = Math.round(m.w * m.dpr); this.canvas.height = Math.round(m.h * m.dpr);
+        this.flock = new Flock({ width: m.w, height: m.h, count: m.count, seed: m.seed, params: m.params });
+        if (m.season) this.flock.season(m.season);
+        if (m.still) this.settle();
+        else this.start();
+        break;
+      }
+      case 'resize':
+        this.dpr = m.dpr; this.w = m.w; this.h = m.h;
+        this.canvas.width = Math.round(m.w * m.dpr); this.canvas.height = Math.round(m.h * m.dpr);
+        f?.resize(m.w, m.h); if (this.still) this.draw();
+        break;
+      case 'style': Object.assign(this.style, m.style); if (this.still) this.draw(); break;
+      case 'pointer': f?.setPointer(m.x, m.y, m.on); break;
+      case 'attract': f?.attract(m.x, m.y, m.r, m.k, m.life, m.id); break;
+      case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(); } break;
+      case 'wind': if (f) { f.wind.x += m.x; f.wind.y += m.y; } break;
+      case 'gravity': if (f) { f.gravity.x = m.x; f.gravity.y = m.y; } break;
+      case 'form': f?.form(m.points, m.aspect, m.box, m.hold); break;
+      case 'release': f?.release(); break;
+      case 'perch': f?.perch(m.segment); break;
+      case 'trace': f?.trace(m.x0, m.y0, m.x1, m.y1, m.count, m.dur); break;
+      case 'tempo': if (f) f.tempo = m.value; break;
+      case 'count': this.target = m.value; f?.setCount(m.value); break;
+      case 'params': if (f) Object.assign(f.p, m.params); break;
+      case 'season': f?.season(m.season); break;
+      case 'visible': m.value ? this.start() : this.stop(); break;
+      case 'step': if (this.still && f) { f.advance(m.dt || STEP); this.draw(); } break;
+    }
+  }
+
+  // Still mode: no animation, just a composed frame. Runs the simulation
+  // ahead so the frame looks lived-in rather than freshly scattered.
+  settle(steps = 600) { for (let i = 0; i < steps; i++) this.flock._step(STEP); this.draw(); }
+
+  start() { if (this.running || this.still) return; this.running = true; this.last = 0; this.raf(this.tick); }
+  stop() { this.running = false; }
+
+  tick = (now) => {
+    if (!this.running) return;
+    const dt = this.last ? Math.min(0.1, (now - this.last) / 1000) : STEP;
+    this.last = now;
+    this.flock.advance(dt);
+    this.draw();
+    // Adaptive density: average the last 90 frames.
+    this.accum += dt; this.frames++;
+    if (this.frames === 90) {
+      const avg = this.accum / this.frames;
+      const n = this.flock.n;
+      if (avg > 1 / 45 && n > 40) this.flock.setCount(Math.round(n * 0.8));
+      else if (avg < 1 / 70 && n < this.target) this.flock.setCount(Math.min(this.target, Math.round(n * 1.15)));
+      this.onstats?.({ fps: 1 / avg, n: this.flock.n });
+      this.frames = 0; this.accum = 0;
+    }
+    this.raf(this.tick);
+  };
+
+  draw() {
+    this.flock.render(this.ctx, { ...this.style, dpr: this.dpr, w: this.w, h: this.h });
+  }
+}

@@ -1,2 +1,4 @@
-_site
-res
+tools/node_modules/
+tools/out/
+tools/src-fonts/
+.DS_Store

@@ -1,0 +1,281 @@
+/*
+ * style.css — everything visual that isn't the flock.
+ *
+ * Two themes, one hue. The accent is a single OKLCH hue (--hue) that drifts
+ * across the day (see main.js: hueAt). Because lightness and chroma are fixed
+ * per theme, contrast stays constant at every hour — AA is a property of the
+ * design, not of the time you happened to visit.
+ */
+
+@font-face {
+  font-family: 'Geist';
+  src: url('../fonts/geist.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('../fonts/geist-mono.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+/* Metric-compatible fallback so text doesn't jump when Geist arrives. */
+@font-face {
+  font-family: 'Geist Fallback';
+  src: local('Helvetica Neue'), local('Arial');
+  size-adjust: 97.5%;
+  ascent-override: 95%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+}
+
+@property --hue { syntax: '<number>'; inherits: true; initial-value: 88; }
+
+:root {
+  color-scheme: light dark;
+  --hue: 88;                         /* the 2013 yellow, until JS knows the hour */
+  --sans: 'Geist', 'Geist Fallback', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --bg: oklch(98.2% 0.004 95);
+  --fg: oklch(19% 0.01 95);
+  --muted: oklch(48% 0.012 95);
+  --hair: oklch(19% 0.01 95 / 0.14);
+  --accent: oklch(46% 0.12 var(--hue));       /* 5.9:1 on --bg at every hue */
+  --accent-soft: oklch(46% 0.12 var(--hue) / 0.12);
+  --flock: oklch(42% 0.10 var(--hue));
+  --shadow: 0 1px 2px oklch(0% 0 0 / 0.06), 0 12px 40px -12px oklch(0% 0 0 / 0.25);
+
+  --gutter: clamp(1.25rem, 5vw, 5rem);
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  transition: --hue 2s linear;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: oklch(14% 0.006 260);
+    --fg: oklch(93% 0.006 95);
+    --muted: oklch(66% 0.01 95);
+    --hair: oklch(93% 0.006 95 / 0.14);
+    --accent: oklch(80% 0.12 var(--hue));      /* 9.8:1 on --bg at every hue */
+    --accent-soft: oklch(80% 0.12 var(--hue) / 0.14);
+    --flock: oklch(76% 0.10 var(--hue));
+    --shadow: 0 1px 2px oklch(0% 0 0 / 0.3), 0 12px 40px -12px oklch(0% 0 0 / 0.7);
+  }
+}
+:root[data-theme='dark'] {
+  --bg: oklch(14% 0.006 260);
+  --fg: oklch(93% 0.006 95);
+  --muted: oklch(66% 0.01 95);
+  --hair: oklch(93% 0.006 95 / 0.14);
+  --accent: oklch(80% 0.12 var(--hue));
+  --accent-soft: oklch(80% 0.12 var(--hue) / 0.14);
+  --flock: oklch(76% 0.10 var(--hue));
+  --shadow: 0 1px 2px oklch(0% 0 0 / 0.3), 0 12px 40px -12px oklch(0% 0 0 / 0.7);
+}
+
+/* --- Base ---------------------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 1rem/1.5 var(--sans);
+  font-feature-settings: 'ss01', 'cv11';    /* Geist: single-storey a, open digits */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  hanging-punctuation: first last;
+  overflow-x: clip;
+  transition: background-color .4s var(--ease-in-out), color .4s var(--ease-in-out);
+}
+::selection { background: var(--accent-soft); color: var(--fg); }
+
+a { color: inherit; text-decoration-color: transparent; text-underline-offset: .18em; text-decoration-thickness: 1px; transition: text-decoration-color .3s var(--ease-out), color .3s var(--ease-out); }
+a:hover, a:focus-visible { text-decoration: underline; text-decoration-color: var(--accent); color: var(--accent); }
+/* With a pointer and script, the flock draws the underline first (main.js traces
+ * it); the CSS one fades in just behind them, as if they left it there. */
+@media (hover: hover) and (pointer: fine) {
+  .js a:hover:not(:focus-visible) { transition: color .3s var(--ease-out), text-decoration-color .5s var(--ease-out) .7s; }
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+figure { margin: 0; }
+img, svg { display: block; max-width: 100%; height: auto; }
+
+.mono { font-family: var(--mono); font-feature-settings: 'tnum'; font-size: .8125rem; letter-spacing: .01em; }
+.skip { position: absolute; left: var(--gutter); top: -3rem; padding: .5rem .75rem; background: var(--bg); border: 1px solid var(--hair); z-index: 10; }
+.skip:focus-visible { top: 1rem; }
+
+/* --- The flock's canvas, and the still for when there's no script -------- */
+#flock, .still {
+  position: fixed; inset: 0; width: 100%; height: 100%;
+  z-index: 0; pointer-events: none;
+}
+.still { color: var(--flock); }
+.js .still { display: none; }
+.still line { stroke: currentColor; stroke-linecap: round; stroke-width: 1.25; }
+
+/* Everything real sits above the canvas, but lets hover through where empty. */
+.hero, main, .site-footer { position: relative; z-index: 1; pointer-events: none; }
+.hero *, main *, .site-footer * { pointer-events: auto; }
+
+/* --- Hero ---------------------------------------------------------------- */
+.hero {
+  min-height: 100svh;
+  min-height: 100dvh;
+  display: grid;
+  align-content: end;
+  padding: var(--gutter);
+  padding-bottom: calc(var(--gutter) + env(safe-area-inset-bottom));
+  padding-left: calc(var(--gutter) + env(safe-area-inset-left));
+}
+.hero-text { max-width: 38rem; }
+h1 {
+  font-size: clamp(1.625rem, 1.2rem + 1.8vw, 2.5rem);
+  font-weight: 500;
+  letter-spacing: -0.022em;
+  line-height: 1.1;
+  margin: 0 0 .75em;
+  margin-left: -0.06em;             /* optical alignment of the J's top bar */
+  text-wrap: balance;
+}
+.hero p {
+  margin: 0;
+  font-size: clamp(1rem, .9rem + .5vw, 1.25rem);
+  line-height: 1.45;
+  color: var(--fg);
+  text-wrap: pretty;
+  max-width: 34ch;
+}
+.hero-links { display: flex; gap: 1.5rem; margin-top: 1.75rem; list-style: none; padding: 0; font-family: var(--mono); font-size: .8125rem; letter-spacing: .02em; text-transform: lowercase; }
+.hero-links a { display: inline-block; padding: .25rem 0; min-height: 44px; line-height: 44px; }
+.hero-links li:last-child { margin-left: auto; }
+.hero-links a[href='#archive']::after { content: ' ↓'; display: inline-block; transition: transform .4s var(--ease-out); }
+.hero-links a[href='#archive']:hover::after { transform: translateY(3px); }
+
+/* As you scroll away, the hero text recedes; the flock doesn't. */
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .hero-text { animation: hero-away linear both; animation-timeline: scroll(); animation-range: 0 70vh; }
+    @keyframes hero-away { to { opacity: .15; transform: translateY(-2rem); } }
+  }
+}
+
+/* --- Archive ------------------------------------------------------------- */
+.archive { padding: calc(var(--gutter) * 1.5) var(--gutter) var(--gutter); max-width: 60rem; }
+.archive header { display: flex; align-items: baseline; gap: 1.25rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+h2 { font-size: 1rem; font-weight: 500; margin: 0; letter-spacing: -0.01em; }
+.meta { margin: 0; color: var(--muted); }
+.rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--hair); }
+.rows li { border-bottom: 1px solid var(--hair); }
+.row {
+  display: grid;
+  grid-template-columns: 2.25rem 1fr auto 1.5rem;
+  align-items: baseline;
+  gap: 1rem;
+  min-height: 56px;
+  padding: 1rem 0;
+  text-decoration: none !important;
+  color: inherit !important;
+  transition: padding-left .45s var(--ease-out);
+}
+.row .num, .row .medium { font-family: var(--mono); font-feature-settings: 'tnum'; font-size: .8125rem; color: var(--muted); }
+.row .name { font-size: 1.125rem; font-weight: 450; letter-spacing: -0.012em; }
+.row .arrow { font-family: var(--mono); color: var(--muted); text-align: right; transition: transform .45s var(--ease-out), color .3s; }
+.row:hover, .row:focus-visible { padding-left: .5rem; }
+.row:hover .name, .row:focus-visible .name { color: var(--accent); }
+.row:hover .arrow, .row:focus-visible .arrow { transform: translateX(4px); color: var(--accent); }
+@media (max-width: 30rem) { .row { grid-template-columns: 1.75rem 1fr 1.25rem; } .row .medium { grid-column: 2; grid-row: 2; margin-top: -.35rem; } }
+
+/* Hover preview: a small greyscale glimpse, in the empty space right of the
+ * list, that drifts with the pointer's height. Pointer devices, wide screens. */
+.preview {
+  position: fixed; left: 0; top: 0; width: 320px; height: 200px;
+  transform: translate(var(--px, -9999px), var(--py, -9999px)) translateY(-50%) scale(.97);
+  opacity: 0; pointer-events: none; z-index: 5;
+  border-radius: 3px; overflow: hidden; box-shadow: var(--shadow);
+  background: var(--bg); display: none;
+  transition: opacity .3s var(--ease-out), transform .5s var(--ease-out);
+}
+.preview.on { opacity: 1; transform: translate(var(--px), var(--py)) translateY(-50%) scale(1); }
+.preview img { width: 100%; height: 100%; object-fit: cover; object-position: top; filter: grayscale(1) contrast(1.05); }
+@media (hover: hover) and (pointer: fine) and (min-width: 1100px) { .preview { display: block; } }
+
+/* --- Sheets (full-length screenshots) ----------------------------------- */
+/* Without script: :target turns the sheet into a full-screen overlay.
+ * With script: the same node is moved into <dialog> (focus trap, ESC, inert). */
+.sheet { display: none; }
+html:not(.js) .sheet:target, dialog[open] .sheet { display: block; }
+html:not(.js) .sheet:target {
+  position: fixed; inset: 0; z-index: 20; overflow: auto; overscroll-behavior: contain;
+  background: var(--bg); padding: 3.5rem var(--gutter) var(--gutter);
+}
+.sheet .close {
+  position: absolute; top: .75rem; right: .75rem; width: 44px; height: 44px;
+  display: grid; place-items: center; font-family: var(--mono); font-size: 1.25rem;
+  text-decoration: none !important; color: var(--muted) !important; border-radius: 50%;
+}
+.sheet .close:hover { color: var(--fg) !important; background: var(--accent-soft); }
+.sheet figure { max-width: 960px; margin: 0 auto; box-shadow: var(--shadow); }
+.sheet figure + figure { margin-top: 2.5rem; }
+.sheet figcaption { font-family: var(--mono); font-size: .75rem; color: var(--muted); padding: .75rem 0 0; }
+.sheet img { width: 100%; background: #fff; }
+.sheet .ruler {
+  display: none; position: sticky; top: 50%; float: right; margin: 0 -2.75rem 0 0; width: 0; height: 0;
+  font-family: var(--mono); font-size: .6875rem; color: var(--muted); white-space: nowrap;
+  writing-mode: vertical-rl; transform: translateY(-50%);
+}
+@media (min-width: 1160px) { .sheet .ruler { display: block; } }
+
+dialog#sheet {
+  --sheet-top: 2.5rem;
+  width: min(100vw, 960px + 2 * var(--gutter)); max-width: none;
+  height: calc(100dvh - var(--sheet-top)); max-height: none; margin: var(--sheet-top) auto 0;
+  padding: 3.5rem var(--gutter) var(--gutter);
+  border: 0; border-radius: 6px 6px 0 0; background: var(--bg); color: var(--fg); overscroll-behavior: contain;
+  box-shadow: var(--shadow);
+  view-transition-name: sheet;
+}
+@media (max-width: 700px) { dialog#sheet { --sheet-top: 0px; border-radius: 0; } }
+/* No backdrop paint: the page itself recedes, so the flock stays visible and a
+ * few birds can perch on the sheet's top edge. */
+dialog#sheet::backdrop { background: transparent; }
+.hero, main, .site-footer { transition: opacity .4s var(--ease-out); }
+.sheet-open .hero, .sheet-open main, .sheet-open .site-footer { opacity: .22; }
+dialog#sheet[open] { animation: sheet-in .45s var(--ease-out); }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(12px); } }
+.sheet-bar {
+  position: sticky; top: -3.5rem; margin: -3.5rem calc(-1 * var(--gutter)) 0; padding: .5rem var(--gutter);
+  display: flex; align-items: center; gap: .5rem; min-height: 3.5rem; z-index: 2;
+  background: color-mix(in oklab, var(--bg) 86%, transparent); backdrop-filter: blur(8px);
+  font-family: var(--mono); font-size: .8125rem; color: var(--muted);
+}
+.sheet-bar .title { color: var(--fg); margin-right: auto; }
+.sheet-bar button { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); }
+.sheet-bar button:hover, .sheet-bar button:focus-visible { color: var(--fg); background: var(--accent-soft); }
+dialog#sheet .sheet { margin-top: 1rem; }
+dialog#sheet .sheet .close { display: none; }
+
+/* --- Footer -------------------------------------------------------------- */
+.site-footer { padding: calc(var(--gutter) * 1.5) var(--gutter) calc(var(--gutter) + env(safe-area-inset-bottom)); font-family: var(--mono); font-size: .8125rem; color: var(--muted); }
+.site-footer p { margin: 0; display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: center; }
+.site-footer .arrow { display: inline-block; opacity: 0; transition: opacity .8s var(--ease-out); }
+.site-footer .arrow.drawn, html:not(.js) .site-footer .arrow { opacity: 1; }
+.site-footer .dot { width: 44px; height: 44px; margin: -1rem -1rem; display: grid; place-items: center; color: var(--muted); }
+.site-footer .dot:hover { color: var(--accent); }
+.site-footer .dot::after { content: '·'; font-size: 1.25rem; }
+
+/* --- View transitions ---------------------------------------------------- */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .3s; }
+::view-transition-old(sheet) { animation: .25s var(--ease-in-out) both vt-out; }
+::view-transition-new(sheet) { animation: .35s var(--ease-out) both vt-in; }
+@keyframes vt-in { from { opacity: 0; transform: translateY(10px); } }
+@keyframes vt-out { to { opacity: 0; transform: translateY(6px); } }
+
+/* --- Motion & print ------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
+  ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
+@media print { #flock, .still, .preview, .site-footer .dot { display: none; } .sheet { display: block; } }
