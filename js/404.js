@@ -1,5 +1,5 @@
 /*
- * 404.js — the flock spells out what happened, then gives up on it.
+ * 404.js — the flock spells out what happened.
  * Small enough to run on the main thread; nothing here scrolls.
  */
 import { Runner, textPoints } from './flock.js';
@@ -20,14 +20,15 @@ post({ type: 'init', dpr, w: innerWidth, h: innerHeight, count: coarse ? 90 : 22
 post({ type: 'style', style: { color: flockColor(dark(), hue) } });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => post({ type: 'style', style: { color: flockColor(dark(), hue) } }));
 
-// Sample "404" into points and have the flock take that shape for a while.
+// Sample "404" into points: that's home here.
 const { points, aspect } = textPoints(document.createElement('canvas').getContext('2d'), '404', '600 150px system-ui, sans-serif', 6);
 function box() {
   const w = innerWidth, h = innerHeight;
   const bw = Math.min(w * 0.5, 480), bh = bw / aspect;
   return { x: w / 2 - bw / 2, y: h * 0.36 - bh / 2, w: bw, h: bh };
 }
-if (!reduce) setTimeout(() => post({ type: 'form', points, aspect, box: box(), hold: 2.4 }), 500);
+post({ type: 'home', points, aspect, box: box() });
+addEventListener('resize', () => post({ type: 'home-box', box: box() }), { passive: true });
 
 addEventListener('resize', () => post({ type: 'resize', dpr, w: innerWidth, h: innerHeight }), { passive: true });
 addEventListener('pointermove', e => { if (e.pointerType !== 'touch') post({ type: 'pointer', x: e.clientX, y: e.clientY, on: true }); }, { passive: true });

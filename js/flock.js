@@ -13,8 +13,11 @@
  *   cohesion    — stay with them
  *   you         — the pointer repels; whatever you hover attracts
  *
- * Modes: 'drift' (default), 'mark' (assemble into the 2013 jm mark),
- * 'snow' (December only — the first commit on this site was "Add snow").
+ * The flock has a home: the 2013 jm mark, top-centre of the viewport. Every
+ * boid is softly sprung to its own point in it, so the shape is always legible
+ * and always breathing. Disturb them and they scatter; leave them and they
+ * drift back. Modes: 'home' (default), 'snow' (December only — the first
+ * commit on this site after the 2013 reset was "Add snow").
  *
  * Units: CSS pixels and seconds. The simulation advances with a fixed
  * timestep so it behaves identically at 30, 60 or 120 Hz.
@@ -29,17 +32,20 @@ const MAX_STEPS = 4;                   // per frame, before we drop time instead
 // Tunables. These are the "feel" — change with care and with a screenshot.
 export const DEFAULTS = {
   perception: 48,     // px — how far a boid can see its neighbours
-  separation: 24,     // px — personal space
+  separation: 14,     // px — personal space (the mark's points are ~14 px apart)
   cruise: 34,         // px/s — speed the flock relaxes to
   maxSpeed: 110,      // px/s — absolute cap in drift mode
   maxForce: 120,      // px/s² — steering cap
   wSeparation: 1.8,
   wAlignment: 0.8,
   wCohesion: 0.35,
-  wWander: 0.5,
-  pointerRadius: 150, // px — how close before the flock minds you
-  pointerPush: 260,   // px/s² — how firmly
+  wWander: 0.4,
+  pointerRadius: 170, // px — how close before the flock minds you
+  pointerPush: 520,   // px/s² — how firmly
   edge: 110,          // px — soft margin before the viewport edge
+  homePull: 3,        // 1/s — spring toward your point in the mark (capped at homeSpeed)
+  homeSpeed: 140,     // px/s — how fast you may go home
+  homeJostle: 0.25,   // how much flocking still applies at home (0 = rigid dots)
 };
 
 // Deterministic PRNG (mulberry32). A seed makes the flock reproducible, which
@@ -90,7 +96,7 @@ export class Flock {
     this.h = opts.height || 1;
     this.random = rng(opts.seed ?? (Date.now() & 0xffff));
     this.time = 0;
-    this.mode = 'drift';
+    this.mode = 'home';
     this.pointer = { x: -1e4, y: -1e4, on: false, speed: 0 };
     this.attractors = [];   // {x, y, r, k, until}
     this.obstacles = [];    // {x, y, w, h} soft — the flock avoids the text
@@ -98,7 +104,7 @@ export class Flock {
     this.gravity = { x: 0, y: 0 }; // from device tilt
     this.perches = null;    // {x0,y0,x1,y1} — a wire to sit on
     this.traces = [];       // {i, x0,y0,x1,y1, t0, dur}
-    this.formation = null;  // {points, aspect, box:{x,y,w,h}, since, hold}
+    this.home = null;       // {points, aspect, box:{x,y,w,h}} — where the flock belongs
     this.tempo = 1;         // global speed multiplier (dims when a sheet is open)
     this.setCount(opts.count || 120);
   }
@@ -118,13 +124,14 @@ export class Flock {
     this.vy = grow(this.vy, () => (this.random() - 0.5) * this.p.cruise);
     this.ph = grow(this.ph, () => this.random() * Math.PI * 2); // personal phase
     this.op = grow(this.op, () => 0.55 + this.random() * 0.45);  // personal opacity
+    this.scare = grow(this.scare, () => 0);                        // seconds of fright left
     const role = new Uint8Array(n); if (this.role) role.set(this.role.subarray(0, Math.min(old, n)));
     this.role = role; // 0 free, 1 perching, 2 tracing
     this.fx = new Float32Array(n);
     this.fy = new Float32Array(n);
     this.n = n;
     this._acc = 0;
-    if (this.formation) this._assign();
+    if (this.home) this._assign();
   }
 
   resize(w, h) {
@@ -150,33 +157,21 @@ export class Flock {
     if (k > 0 && life > 0) this.attractors.push({ id, x, y, r, k, until: this.time + life });
   }
 
-  // Assemble into a shape. `box` is where it goes, in CSS px.
-  form(points, aspect, box, hold = 0.8) {
-    this.formation = { points, aspect, box, since: this.time, hold, released: false };
-    this.mode = 'mark';
+  // Give the flock a home: a point cloud (percent coords) placed in `box` (CSS px).
+  setHome(points, aspect, box) {
+    this.home = { points, aspect, box };
     this._assign();
   }
-
-  release() {
-    if (this.formation) {
-      // Let go softly: a small outward breath from the mark's centre, with a
-      // personal nudge, so the shape dissolves instead of sitting as a clump.
-      const b = this.formation.box, cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-      for (let i = 0; i < this.n; i++) {
-        const dx = this.x[i] - cx, dy = this.y[i] - cy, d = Math.hypot(dx, dy) || 1;
-        const a = this.random() * Math.PI * 2, k = 18 + this.random() * 22;
-        this.vx[i] += dx / d * 26 + Math.cos(a) * k;
-        this.vy[i] += dy / d * 26 + Math.sin(a) * k;
-      }
-    }
-    this.mode = this._season === 'snow' ? 'snow' : 'drift';
-    this.formation = null;
-    this.tgt = null;
+  // Move the home (scroll parallax, resize) without reassigning points.
+  moveHome(box) {
+    if (!this.home) return;
+    this.home.box = box;
+    this._assign(false);
   }
+  clearHome() { this.home = null; this.tgt = null; }
 
   season(name) { // 'snow' | null
-    this._season = name;
-    if (this.mode !== 'mark') this.mode = name === 'snow' ? 'snow' : 'drift';
+    this.mode = name === 'snow' ? 'snow' : 'home';
   }
 
   perch(segment) { // {x0,y0,x1,y1} or null
@@ -211,18 +206,21 @@ export class Flock {
 
   // --- Simulation -----------------------------------------------------------
 
-  _assign() {
-    const f = this.formation; if (!f) return;
-    const pts = f.points, m = pts.length / 2;
-    this.tgt = new Float32Array(this.n * 2);
-    // Spread boids across the mark's points; extra boids double up.
-    const order = [];
-    for (let k = 0; k < m; k++) order.push(k);
-    for (let k = m - 1; k > 0; k--) { const j = (this.random() * (k + 1)) | 0; [order[k], order[j]] = [order[j], order[k]]; }
+  _assign(reshuffle = true) {
+    const h = this.home; if (!h) return;
+    const pts = h.points, m = pts.length / 2;
+    if (reshuffle || !this.order || this.order.length !== m) {
+      // Spread boids across the mark's points; extra boids double up.
+      const order = [];
+      for (let k = 0; k < m; k++) order.push(k);
+      for (let k = m - 1; k > 0; k--) { const j = (this.random() * (k + 1)) | 0; [order[k], order[j]] = [order[j], order[k]]; }
+      this.order = order;
+    }
+    if (!this.tgt || this.tgt.length !== this.n * 2) this.tgt = new Float32Array(this.n * 2);
     for (let i = 0; i < this.n; i++) {
-      const k = order[i % m];
-      this.tgt[i * 2] = f.box.x + (pts[k * 2] / 100) * f.box.w;
-      this.tgt[i * 2 + 1] = f.box.y + (pts[k * 2 + 1] / 100) * f.box.h;
+      const k = this.order[i % m];
+      this.tgt[i * 2] = h.box.x + (pts[k * 2] / 100) * h.box.w;
+      this.tgt[i * 2 + 1] = h.box.y + (pts[k * 2 + 1] / 100) * h.box.h;
     }
   }
 
@@ -251,13 +249,19 @@ export class Flock {
     }
 
     const per2 = p.perception * p.perception, sep2 = p.separation * p.separation;
-    const flockOn = mode === 'drift';
+    const homing = mode === 'home' && !!this.tgt;
     const maxF = p.maxForce;
+    // The top edge is permeable when home has risen above the viewport (scroll),
+    // so the flock can follow it out instead of banding along the top.
+    const hb = this.home?.box;
+    // The whole mark sways very slowly, so even at rest it is never a still image.
+    const swayX = Math.sin(t * 0.31) * 5, swayY = Math.cos(t * 0.23) * 4;
+    const topLimit = hb ? Math.max(-this.h, Math.min(0, hb.y - 40)) : 0;
 
     for (let i = 0; i < n; i++) {
       const xi = x[i], yi = y[i];
       let sx = 0, sy = 0, ax = 0, ay = 0, cx = 0, cy = 0, cnt = 0;
-      if (flockOn || mode === 'snow') {
+      {
         const gx = (xi / cell) | 0, gy = (yi / cell) | 0;
         for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
           const bx = gx + ox, by = gy + oy;
@@ -272,23 +276,41 @@ export class Flock {
         }
       }
       let Fx = 0, Fy = 0;
+      // Fright: a scared boid forgets home for a moment and flocks away with
+      // the others; then the memory fades and it drifts back. So a hover
+      // scatters the flock rather than dents it.
+      const fear = this.scare[i] > 0 ? Math.min(1, this.scare[i] / 0.6) : 0;
+      if (this.scare[i] > 0) this.scare[i] -= dt;
+      const jostle = homing ? p.homeJostle + (1 - p.homeJostle) * fear : 1; // at home the rules apply softly; scared, fully
       if (cnt) {
         ax /= cnt; ay /= cnt; cx /= cnt; cy /= cnt;
         const al = Math.hypot(ax, ay) || 1;
-        const wA = mode === 'snow' ? 0 : p.wAlignment, wC = mode === 'snow' ? 0 : p.wCohesion;
+        const wA = mode === 'snow' ? 0 : p.wAlignment * jostle, wC = mode === 'snow' ? 0 : p.wCohesion * jostle;
         Fx += (ax / al * p.cruise - vx[i]) * wA + cx * wC;
         Fy += (ay / al * p.cruise - vy[i]) * wA + cy * wC;
       }
       Fx += sx * p.wSeparation * 90; Fy += sy * p.wSeparation * 90;
+
+      // Home: a soft spring to your point in the mark. Far away you fly at
+      // homeSpeed; near it you only hover, so the shape breathes but holds.
+      let homeD = 1e9;
+      if (homing) {
+        const tx = this.tgt[i * 2] + swayX, ty = this.tgt[i * 2 + 1] + swayY;
+        const dx = tx - xi, dy = ty - yi; homeD = Math.hypot(dx, dy) || 1e-3;
+        const pull = Math.min(homeD * p.homePull, p.homeSpeed) * (1 - fear * 0.92);
+        const g = 2.2 * (1 - fear * 0.8);
+        Fx += (dx / homeD * pull - vx[i]) * g; Fy += (dy / homeD * pull - vy[i]) * g;
+      }
 
       // Wander: a slow personal sine so nobody flies perfectly straight.
       const ph = this.ph[i];
       Fx += Math.cos(t * 0.9 + ph) * p.wWander * 40;
       Fy += Math.sin(t * 0.7 + ph * 1.3) * p.wWander * 40;
 
-      // Cruise: relax speed toward cruise (or drift slowly in snow).
+      // Cruise: relax speed toward cruise — slower the closer to home, so
+      // boids at rest only drift a few pixels, never stop dead.
       const sp = Math.hypot(vx[i], vy[i]) || 1e-3;
-      const want = mode === 'snow' ? p.cruise * 0.5 : p.cruise;
+      const want = mode === 'snow' ? p.cruise * 0.5 : homing ? p.cruise * Math.min(1, 0.18 + homeD / 90 + fear) : p.cruise;
       const k = (want - sp) * 0.8;
       Fx += vx[i] / sp * k; Fy += vy[i] / sp * k;
 
@@ -299,6 +321,7 @@ export class Flock {
           const s = 1 - d / p.pointerRadius;
           const push = p.pointerPush * s * s * (1 + Math.min(this.pointer.speed, 40) * 0.03);
           Fx += dx / d * push; Fy += dy / d * push;
+          this.scare[i] = Math.max(this.scare[i], 1.6 + s * 2.0);
         }
       }
       // Things you hover.
@@ -324,21 +347,12 @@ export class Flock {
       // Edges: turn back softly, never bounce.
       const e = p.edge;
       if (xi < e) Fx += (e - xi) / e * 160; else if (xi > this.w - e) Fx -= (xi - (this.w - e)) / e * 160;
-      if (yi < e) Fy += (e - yi) / e * 160; else if (yi > this.h - e) Fy -= (yi - (this.h - e)) / e * 160;
+      if (yi < topLimit + e) Fy += (topLimit + e - yi) / e * 160; else if (yi > this.h - e) Fy -= (yi - (this.h - e)) / e * 160;
 
       // Weather.
       Fx += this.wind.x; Fy += this.wind.y;
       Fx += this.gravity.x; Fy += this.gravity.y;
       if (mode === 'snow') { Fy += 26; Fx += Math.sin(t * 1.4 + ph) * 18; }
-
-      // Formation: arrive at your assigned point in the mark.
-      if (mode === 'mark' && this.tgt) {
-        const tx = this.tgt[i * 2], ty = this.tgt[i * 2 + 1];
-        const dx = tx - xi, dy = ty - yi, d = Math.hypot(dx, dy) || 1e-3;
-        const speed = Math.min(d * 3.2, 420);
-        Fx = (dx / d * speed - vx[i]) * 6; Fy = (dy / d * speed - vy[i]) * 6;
-        if (d < 2) { Fx -= vx[i] * 12; Fy -= vy[i] * 12; }
-      }
 
       // Role overrides: perching and tracing.
       if (this.role[i] === 1 && this.perches) {
@@ -353,7 +367,7 @@ export class Flock {
 
       // Clamp steering.
       const fm = Math.hypot(Fx, Fy);
-      const cap = mode === 'mark' || this.role[i] ? 2600 : maxF * 4;
+      const cap = this.role[i] ? 2600 : maxF * 4;
       if (fm > cap) { Fx *= cap / fm; Fy *= cap / fm; }
       fx[i] = Fx; fy[i] = Fy;
     }
@@ -373,7 +387,7 @@ export class Flock {
 
     // Integrate.
     const tempo = this.tempo;
-    const vmax = mode === 'mark' ? 520 : this.pointer.on ? p.maxSpeed * 2.2 : p.maxSpeed;
+    const vmax = this.pointer.on ? p.maxSpeed * 2.2 : Math.max(p.maxSpeed, p.homeSpeed);
     for (let i = 0; i < n; i++) {
       vx[i] += fx[i] * dt; vy[i] += fy[i] * dt;
       let sp = Math.hypot(vx[i], vy[i]);
@@ -384,15 +398,13 @@ export class Flock {
       // Snow wraps; everything else is kept inside by the edge force.
       if (mode === 'snow' && y[i] > this.h + 8) { y[i] = -8; x[i] = this.random() * this.w; }
       if (x[i] < -20) x[i] = -20; else if (x[i] > this.w + 20) x[i] = this.w + 20;
-      if (y[i] < -20) y[i] = -20; else if (y[i] > this.h + 20 && mode !== 'snow') y[i] = this.h + 20;
+      if (y[i] < topLimit - 20) y[i] = topLimit - 20; else if (y[i] > this.h + 20 && mode !== 'snow') y[i] = this.h + 20;
     }
 
     // Housekeeping.
     this.wind.x *= 0.92; this.wind.y *= 0.92;
     this.pointer.speed *= 0.85;
     if (this.attractors.length) this.attractors = this.attractors.filter(a => a.until > t);
-    const f = this.formation;
-    if (f && f.hold > 0 && t - f.since > f.hold + 1.4) this.release();
   }
 
   // --- Rendering ------------------------------------------------------------
@@ -472,8 +484,9 @@ export class Runner {
       case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(); } break;
       case 'wind': if (f) { f.wind.x += m.x; f.wind.y += m.y; } break;
       case 'gravity': if (f) { f.gravity.x = m.x; f.gravity.y = m.y; } break;
-      case 'form': f?.form(m.points, m.aspect, m.box, m.hold); break;
-      case 'release': f?.release(); break;
+      case 'home': f?.setHome(m.points, m.aspect, m.box); if (this.still) this.settle(); break;
+      case 'home-box': f?.moveHome(m.box); if (this.still) this.settle(240); break;
+      case 'home-off': f?.clearHome(); break;
       case 'perch': f?.perch(m.segment); break;
       case 'trace': f?.trace(m.x0, m.y0, m.x1, m.y1, m.count, m.dur); break;
       case 'tempo': if (f) f.tempo = m.value; break;

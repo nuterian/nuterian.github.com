@@ -1,12 +1,14 @@
 // Renders one seeded frame of the flock as inline SVG and writes it into
 // index.html between <!--STILL--> markers. This is what you see with script off.
 import { readFile, writeFile } from 'node:fs/promises';
-import { Flock, STEP } from '../js/flock.js';
+import { Flock, STEP, MARK, MARK_ASPECT } from '../js/flock.js';
 
 const W = 1440, H = 900;
-const f = new Flock({ width: W, height: H, count: 110, seed: 2013 });
+const f = new Flock({ width: W, height: H, count: 200, seed: 2013 });
 f.obstacles = [{ x: 80, y: 600, w: 520, h: 220 }]; // roughly where the hero text sits
-for (let i = 0; i < 420; i++) f._step(STEP);
+const bw = 440, bh = bw / MARK_ASPECT;               // same placement as main.js homeBox()
+f.setHome(MARK, MARK_ASPECT, { x: W / 2 - bw / 2, y: Math.max(bh / 2 + 28, H * 0.24) - bh / 2, w: bw, h: bh });
+for (let i = 0; i < 900; i++) f._step(STEP);
 
 let lines = '';
 for (let i = 0; i < f.n; i++) {

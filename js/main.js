@@ -120,7 +120,7 @@ if (!startWorker()) startMainThread();
 let resizeRaf = 0;
 addEventListener('resize', () => {
   cancelAnimationFrame(resizeRaf);
-  resizeRaf = requestAnimationFrame(() => { post({ type: 'resize', dpr: dpr(), w: vw(), h: vh() }); sendObstacles(); });
+  resizeRaf = requestAnimationFrame(() => { post({ type: 'resize', dpr: dpr(), w: vw(), h: vh() }); sendObstacles(); sendHome(false); });
 }, { passive: true });
 document.addEventListener('visibilitychange', () => post({ type: 'visible', value: !document.hidden }));
 
@@ -143,17 +143,10 @@ function sendObstacles() {
 sendObstacles();
 
 // Pointer: mouse/pen repel. Touch is handled as taps below (dragging scrolls).
-let idleTimer = 0, formedIdle = false, shatterTimer = 0;
-function touched() { // any input resets idleness; if the mark had formed, it notices you and lets go
-  if (formedIdle) { clearTimeout(shatterTimer); shatterTimer = setTimeout(() => { post({ type: 'release' }); formedIdle = false; }, 260); }
-  clearTimeout(idleTimer);
-  if (!STILL && !sheet.open) idleTimer = setTimeout(idleForm, 20_000);
-}
 addEventListener('pointermove', e => {
   if (e.pointerType === 'touch') return;
   post({ type: 'pointer', x: e.clientX, y: e.clientY, on: true });
   if (preview.classList.contains('on')) movePreview(e.clientX, e.clientY);
-  touched();
 }, { passive: true });
 addEventListener('pointerleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
 document.addEventListener('mouseleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
@@ -167,7 +160,6 @@ addEventListener('pointerup', e => {
   if (moved < 12 && performance.now() - tapStart.t < 400) {
     post({ type: 'attract', id: 'tap', x: e.clientX, y: e.clientY, r: 110, k: 1.6, life: 1.3 });
     requestTilt();
-    touched();
   }
   tapStart = null;
 }, { passive: true });
@@ -190,57 +182,38 @@ function onTilt(e) {
 
 // Scroll: wind. Content goes up, the flock is blown up with it, then settles.
 let lastY = scrollY;
+let scrollRaf = 0;
 addEventListener('scroll', () => {
   const dy = scrollY - lastY; lastY = scrollY;
   post({ type: 'wind', x: 0, y: -Math.max(-60, Math.min(60, dy)) * 4 });
-  sendObstacles();
-  touched();
+  cancelAnimationFrame(scrollRaf);
+  scrollRaf = requestAnimationFrame(() => { sendObstacles(); sendHome(false); });
 }, { passive: true });
 
-// Hover: whatever you point at, the flock leans toward; links get their
-// underline traced by a few boids breaking off.
+// Hover a link and the nearest few boids break off to trace its underline.
 if (finePointer.matches) {
-  let hoverId = 0;
   document.addEventListener('pointerover', e => {
-    const a = e.target.closest('a, button');
+    const a = e.target.closest('a:not(.row)');
     if (!a || a.closest('dialog')) return;
-    const r = a.getBoundingClientRect();
-    post({ type: 'attract', id: 'hover', x: r.left + r.width / 2, y: r.top + r.height / 2, r: Math.max(60, r.width / 2), k: 0.9, life: 30 });
-    if (a.matches('a:not(.row)')) { // trace the underline itself, not the (taller) tap target
-      const range = document.createRange(); range.selectNodeContents(a);
-      const t = range.getBoundingClientRect();
-      post({ type: 'trace', x0: t.left, y0: t.bottom + 1, x1: t.right, y1: t.bottom + 1, count: 4, dur: 0.8 });
-    }
-    hoverId++;
-  });
-  document.addEventListener('pointerout', e => {
-    const a = e.target.closest('a, button');
-    if (!a || a.closest('dialog')) return;
-    if (e.relatedTarget && a.contains(e.relatedTarget)) return;
-    post({ type: 'attract', id: 'hover', x: 0, y: 0, r: 1, k: 0, life: 0 });
+    const range = document.createRange(); range.selectNodeContents(a);
+    const t = range.getBoundingClientRect();
+    post({ type: 'trace', x0: t.left, y0: t.bottom + 1, x1: t.right, y1: t.bottom + 1, count: 4, dur: 0.8 });
   });
 }
 
-// The mark. On load the flock assembles into the 2013 jm, holds, and lets go.
-function markBox() {
+// Home: the 2013 jm mark, top-centre of the viewport. It rises with a 0.6
+// parallax as you scroll, so it never sits on top of the archive.
+function homeBox() {
   const w = vw(), h = vh();
-  const text = $('.hero-text').getBoundingClientRect();
-  let bw = Math.min(w * 0.42, 560), cx = w * 0.66, cy = h * 0.40;
-  if (w < 700) { bw = w * 0.66; cx = w * 0.5; cy = Math.min(h * 0.33, text.top / 2); }
+  const bw = w < 700 ? w * 0.66 : Math.min(w * 0.34, 440);
   const bh = bw / MARK_ASPECT;
-  return { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+  const cy = Math.max(bh / 2 + 28, h * (w < 700 ? 0.2 : 0.24));
+  return { x: w / 2 - bw / 2, y: cy - bh / 2 - scrollY * 0.6, w: bw, h: bh };
 }
-function formMark(hold) { post({ type: 'form', points: MARK, aspect: MARK_ASPECT, box: markBox(), hold }); }
-function idleForm() { if (sheet.open || STILL) return; formedIdle = true; formMark(0); }
-
-if (!STILL) {
-  const seen = localStorage.getItem('seen');
-  // Let the page paint and the fonts land, then assemble.
-  const delay = seen ? 250 : 600;
-  setTimeout(() => { formMark(seen ? 0.5 : 1.1); }, delay);
-  try { localStorage.setItem('seen', '1'); } catch {}
-  idleTimer = setTimeout(idleForm, 20_000);
+function sendHome(full = true) {
+  post(full ? { type: 'home', points: MARK, aspect: MARK_ASPECT, box: homeBox() } : { type: 'home-box', box: homeBox() });
 }
+sendHome(true);
 
 /* ---------------------------------------------------------------------------
  * 4. The archive
@@ -274,10 +247,7 @@ function openSheet(slug, { push = true } = {}) {
   vt(go);
   // The flock dims and slows while you read, and keeps to the margins.
   post({ type: 'tempo', value: 0.35 }); pushStyle({ alpha: 0.8 });
-  post({ type: 'attract', id: 'hover', x: 0, y: 0, r: 1, k: 0, life: 0 });
-  post({ type: 'attract', id: 'preview', x: 0, y: 0, r: 1, k: 0, life: 0 });
   preview.classList.remove('on');
-  clearTimeout(idleTimer);
   $('#sheet-prev').disabled = slugs.indexOf(slug) === 0;
   $('#sheet-next').disabled = slugs.indexOf(slug) === slugs.length - 1;
 }
@@ -294,7 +264,6 @@ function closeSheet({ back = true } = {}) {
   if (back && history.state?.slug) history.back();
   else if (back) history.replaceState(null, '', '#archive');
   opener?.focus({ preventScroll: true });
-  touched();
 }
 sheet.addEventListener('close', () => closeSheet()); // ESC (and any other native close)
 sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); }); // backdrop
@@ -324,7 +293,6 @@ addEventListener('keydown', e => {
   if (sheet.open && e.key === 'ArrowRight') step(1);
   else if (sheet.open && e.key === 'ArrowLeft') step(-1);
   else if (!sheet.open && (e.key === 't' || e.key === 'T') && !e.metaKey && !e.ctrlKey && !e.altKey) cycleTheme();
-  touched();
 });
 // Deep links and back/forward.
 addEventListener('popstate', () => route(false));
@@ -343,7 +311,6 @@ function movePreview(x, y) {
   const px = Math.min(a.right + 40, vw() - 320 - 24);
   const py = Math.max(120, Math.min(y, vh() - 120));
   preview.style.setProperty('--px', `${px}px`); preview.style.setProperty('--py', `${py}px`);
-  post({ type: 'attract', id: 'preview', x: px + 160, y: py, r: 190, k: 0.7, life: 0.6 });
 }
 if (finePointer.matches) {
   rows.forEach(r => {
@@ -375,7 +342,7 @@ if (arrow && 'IntersectionObserver' in window) {
 
 // Console: one line, and a handle to poke at.
 console.log(
-  `%cflock%c ${TARGET} · rules: separation, alignment, cohesion, you · ${inWorker ? 'worker + OffscreenCanvas' : 'main thread'}${STILL ? ' · still' : ''}\n%cwindow.flock — { count, params, form(), release(), season(), seed } · ?n= ?seed= ?still ?hue= ?season=snow · press t`,
+  `%cflock%c ${TARGET} · rules: separation, alignment, cohesion, you · ${inWorker ? 'worker + OffscreenCanvas' : 'main thread'}${STILL ? ' · still' : ''}\n%cwindow.flock — { count, fps, params, home, season(), hue, seed } · ?n= ?seed= ?still ?hue= ?season=snow · press t`,
   'font-weight:600', '', 'color:gray');
 window.flock = {
   get count() { return stats.n; },
@@ -383,8 +350,8 @@ window.flock = {
   get fps() { return Math.round(stats.fps); },
   get params() { return { ...DEFAULTS }; },
   set params(p) { post({ type: 'params', params: p }); },
-  form: () => formMark(0),
-  release: () => post({ type: 'release' }),
+  get home() { return homeBox(); },
+  set home(on) { on ? sendHome(true) : post({ type: 'home-off' }); },
   season: s => post({ type: 'season', season: s }),
   tempo: v => post({ type: 'tempo', value: v }),
   get seed() { return seed; },
