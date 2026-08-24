@@ -139,6 +139,11 @@ Compute is never the cost. The costs that were real, in the order we found them:
    for 1.25 px shader-feathered strokes), and the canvas draws only when a sim step ran.
 4. **Adaptive density was the disease, not the cure**: it read a depressed frame rate and
    thinned the mark. Gone — the count you ask for is the count you get.
+5. **A hover that animated `padding-left`**: the archive row nudged its content right by
+   animating padding, which re-solved the row's four-column grid on every frame of the
+   450 ms — the last layout work in a page that otherwise never reflows after load.
+   Measured with Chrome's own `LayoutCount`: 43 layouts per hover in-and-out, against 2
+   for the transform that replaced it, pixel-for-pixel the same movement.
 
 Instruments in `tools/`: `fps.mjs` (achieved flock frame rate — the number that matters;
 main-thread rAF deltas are vsync-pinned and cannot see any of this), `bench.html`
@@ -188,6 +193,22 @@ below: numbered rows (name · medium in mono), 56 px tall, hairline rules. Foote
 “Handcrafted by Jugal, 2013 → 2026 · previous version”. The arrow fades in the first
 time it scrolls into view.
 
+**One interactive grammar.** Every control answers a pointer in one of two ways, and both
+are written once in `css/style.css` rather than per control:
+
+- **Nudge** — a thing that leads somewhere (a link, an archive row) takes the accent colour
+  and shifts a little the way it points. On a row: the number and the name travel 0.5 rem,
+  the arrow slides 4 px, the name goes accent. The *medium* and the arrow are anchored to
+  the right-hand edge and stay; on phones, where the medium is stacked under the name, it
+  travels with it.
+- **Disc** — a round 44 px control (the sheet's ×, its ← →, the footer's theme dot) lifts
+  from muted to fg on a soft accent disc. The dot used to be the odd one out: no radius, no
+  fill, hovering only to accent. It now wears the same disc as the other two.
+
+Both animate **colour and transform only** — nothing interactive on this page touches a
+layout property, and both borrow the same two timing tokens (`--t-nudge` 0.45 s for travel,
+`--t-tint` 0.3 s for colour) so every control settles on the same beat.
+
 ## Archive sheets
 
 Each project's full-length 960 px screenshot (AVIF → WebP → the original PNG from
@@ -201,6 +222,12 @@ Each project's full-length 960 px screenshot (AVIF → WebP → the original PNG
   open animation is a plain CSS transform — no View Transitions, no backdrop blur: the
   perf benchmark showed both costing ~50 ms frames on open, for almost nothing visible.
 - A vertical ruler on wide screens reads “960 px — the width of the web in 2013”.
+- **In dark theme the screenshots are dimmed** (`filter: brightness(.88)`). They are 2013
+  pages: full-bleed white. At full brightness on a 14 %-lightness sheet, opening one at
+  night is a flashbulb. Light mode computes `filter: none`, so it pays nothing. This is the
+  one theme-varying value `light-dark()` can't carry — it isn't a colour, and CSS has no
+  `@media (color-scheme: dark)` — so the *switch* is written for both dark paths while the
+  *value* stays in one place.
 
 ## Accessibility
 
