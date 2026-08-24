@@ -107,6 +107,7 @@ function initMessage() {
   return { type: 'init', dpr: dpr(), w, h, count: TARGET, seed, still: STILL, season, params: {} };
 }
 
+let snapshotResolve = null; // dev: window.flock.snapshot() — see tools/crowd.mjs
 let mainRunner = null; // only when the flock runs on the main thread
 function startMainThread() {
   inWorker = false;
@@ -123,7 +124,10 @@ function startWorker() {
     const worker = new Worker(new URL('./flock.worker.js', import.meta.url), { type: 'module' });
     const off = canvas.transferControlToOffscreen();
     worker.postMessage({ type: 'canvas', canvas: off }, [off]);
-    worker.onmessage = ({ data }) => { if (data.type === 'stats') stats = data; };
+    worker.onmessage = ({ data }) => {
+      if (data.type === 'stats') stats = data;
+      else if (data.type === 'snapshot') snapshotResolve?.(data);
+    };
     worker.onerror = (e) => { // e.g. module workers unsupported: start over on a fresh canvas
       console.warn('flock: worker failed, falling back to main thread —', e.message);
       worker.terminate();
@@ -360,6 +364,7 @@ window.flock = {
   get seed() { return seed; },
   get hue() { return hue; },
   set hue(v) { hue = +v; applyHue(); },
+  snapshot() { return new Promise(r => { snapshotResolve = r; post({ type: 'snapshot' }); }); },
   get where() { return `${inWorker ? 'worker' : 'main'} · ${stats.renderer || 'starting'}`; },
   get _runner() { return mainRunner; }, // main-thread only; handy in DevTools
 };

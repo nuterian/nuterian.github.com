@@ -11,7 +11,7 @@
  *   separation  — don't crowd your neighbours
  *   alignment   — fly the way they fly
  *   cohesion    — stay with them
- *   you         — the pointer startles; the content is a wall
+ *   you         — the pointer startles; the content nudges, gently
  *
  * Every bird is in one of three states:
  *   HOME    — sprung to its own point in the 2013 jm mark, hovering, breathing.
@@ -23,14 +23,25 @@
  *             per bird — and even a settled flock sheds the odd restless bird
  *             into a lap, so the idle state is never everyone at once.
  *
+ * The content is NOT a wall. Early builds made it one — hard collision,
+ * line-of-sight routing, "am I hemmed in" panic states — and birds kept
+ * finding force equilibria against it: pinned queues, beads along an edge,
+ * jammed corners. A goal can always be pulled toward a solid; the fix isn't
+ * a cleverer solid, it's not having one. Instead every content block is a
+ * single smooth potential field (`_fieldForce`): zero at a fuzzy radius,
+ * rising continuously toward the middle, with a small tangential swirl so
+ * a bird sliding past a corner curves around it instead of stalling on the
+ * corner. There is no boolean "blocked", nothing pins in place, and a bird
+ * that does drift over content is fine — it renders above the text (a
+ * higher canvas z-index), so overlap reads as "flying over", not as a bug.
+ *
  * The world is the VIEWPORT (plus a 90 px bleed): the canvas is fixed, and
- * the page's content — the text walls, the mark's anchor — lives in document
- * coordinates that the worker offsets by the scroll position (one tiny
- * message per scrolled frame; no layout reads). So scrolling sweeps the
- * content through the birds' sky: they dodge the text as it passes, they
- * don't ride the page. When the mark scrolls out of view its birds disperse
- * into ambient roaming around whatever whitespace is on screen, and regroup
- * when it returns.
+ * the page's content — the field sources, the mark's anchor — lives in
+ * document coordinates that the worker offsets by the scroll position (one
+ * tiny message per scrolled frame; no layout reads). Scrolling sweeps the
+ * field through the birds' sky rather than dragging the birds with the page.
+ * When the mark scrolls out of view its birds disperse into ambient roaming
+ * around whatever whitespace is on screen, and regroup when it returns.
  *
  * Units: CSS pixels and seconds, in canvas-local coordinates. Fixed 1/60
  * timestep; frames without a step are not redrawn; the hot loops allocate
@@ -64,6 +75,9 @@ export const DEFAULTS = {
   roamSpeed: 105,     // px/s — cruising speed of a lap around the campus
   restless: 0.004,    // 1/s — chance per second a settled bird leaves for a lap
   overshoot: 150,     // px — how far beyond the canvas a bird may fly before turning
+  fieldRadius: 130,    // px — the content's field fades to nothing at this distance
+  fieldForce: 210,     // px/s² — its strength at zero distance (never a hard wall)
+  fieldSwirl: 0.8,     // 0–1 — how much of the push is redirected to curve past corners
 };
 
 // Deterministic PRNG (mulberry32). A seed makes the flock reproducible, which
@@ -147,7 +161,7 @@ export class Flock {
     this._hbOut = false;    // whether the mark is currently scrolled out of view
     this.gravity = { x: 0, y: 0 }; // from device tilt
     this.home = null;       // {points, aspect, box:{x,y,w,h}} — where the flock belongs
-    this._dv = { x: 0, y: 0 }; // desired-velocity scratch for the pilot brain
+    this._dv = { x: 0, y: 0 }; // desired-velocity scratch, reused per bird
     this.tempo = 1;         // global speed multiplier (dims when a sheet is open)
     this.setCount(opts.count || 120);
   }
@@ -177,7 +191,7 @@ export class Flock {
     this.rjit = grow(this.rjit, () => 1);  // personal ring scale, redrawn each departure
     this.cjx = grow(this.cjx, () => 0);    // personal ring centre offset
     this.cjy = grow(this.cjy, () => 0);
-    this.slow = grow(this.slow, () => 0);  // seconds spent near-stationary away from home
+    this.slow = grow(this.slow, () => 0);  // seconds spent near-stationary (any cause) — generic unstick
     const evac = new Uint8Array(n); if (this.evac) evac.set(this.evac.subarray(0, Math.min(old, n)));
     this.evac = evac; // roaming only because the mark scrolled away
     const st = new Uint8Array(n); if (this.st) st.set(this.st.subarray(0, Math.min(old, n)));
@@ -234,48 +248,37 @@ export class Flock {
     this.mode = name === 'snow' ? 'snow' : 'home';
   }
 
-  // Does the straight line from (x0,y0) to (x1,y1), in document space, cross
-  // any content wall? Slab-clipped segment/rect test — a few ns per rect.
-  _blocked(x0, y0, x1, y1) {
+  // The content's field: a single smooth push away from every content
+  // block, felt at up to `fieldRadius` px and rising continuously toward
+  // the middle — never a boolean "blocked", so nothing can pin a bird in
+  // equilibrium against it. A slice of the push is rotated 90° (fieldSwirl)
+  // so a bird gliding past a corner curves around it, like a field line,
+  // instead of stalling nose-on. Deliberately not felt by the mark itself —
+  // see setHome — so the mark's own shape is never distorted by its own
+  // neighbourhood.
+  _fieldForce(px, py, out) {
+    const p = this.p, R = p.fieldRadius;
+    let fx = 0, fy = 0;
     for (const o of this.obstacles) {
-      const m = 12;
-      const rx0 = o.x - m, ry0 = o.y - m, rx1 = o.x + o.w + m, ry1 = o.y + o.h + m;
-      const dx = x1 - x0, dy = y1 - y0;
-      let t0 = 0, t1 = 1;
-      if (dx > -1e-6 && dx < 1e-6) { if (x0 < rx0 || x0 > rx1) continue; }
-      else { let a = (rx0 - x0) / dx, b = (rx1 - x0) / dx; if (a > b) { const c = a; a = b; b = c; } if (a > t0) t0 = a; if (b < t1) t1 = b; if (t0 > t1) continue; }
-      if (dy > -1e-6 && dy < 1e-6) { if (y0 < ry0 || y0 > ry1) continue; }
-      else { let a = (ry0 - y0) / dy, b = (ry1 - y0) / dy; if (a > b) { const c = a; a = b; b = c; } if (a > t0) t0 = a; if (b < t1) t1 = b; if (t0 > t1) continue; }
-      return true;
-    }
-    return false;
-  }
-
-  // A little pilot brain, shared by every state: given a desired velocity,
-  // if the way it points is walled within `look` px, try progressively wider
-  // detour angles — the bird's preferred side first, with a pinch of personal
-  // temperament — and fly the first clear heading. Returns false only when
-  // every whisker is blocked (truly boxed in; the wall push handles that).
-  _steer(i, look) {
-    const dv = this._dv;
-    const x0 = this.x[i], y0 = this.y[i] + this.scroll;
-    const m = Math.sqrt(dv.x * dv.x + dv.y * dv.y) || 1e-3;
-    const ux = dv.x / m, uy = dv.y / m;
-    if (!this._blocked(x0, y0, x0 + ux * look, y0 + uy * look)) return true;
-    const pref = this.odir[i];
-    const jit = (this.op[i] - 0.775) * 0.25;
-    for (const a of [0.55, 1.1, 1.7, 2.4]) {
-      for (let k = 0; k < 2; k++) {
-        const ang = a * (k === 0 ? pref : -pref) + jit;
-        const ca = Math.cos(ang), sa = Math.sin(ang);
-        const rx = ux * ca - uy * sa, ry = ux * sa + uy * ca;
-        if (!this._blocked(x0, y0, x0 + rx * look, y0 + ry * look)) { dv.x = rx * m; dv.y = ry * m; return true; }
+      const cx = px < o.x ? o.x : px > o.x + o.w ? o.x + o.w : px;
+      const cy = py < o.y ? o.y : py > o.y + o.h ? o.y + o.h : py;
+      let dx = px - cx, dy = py - cy;
+      let d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= R) continue;
+      if (d < 1e-3) { // inside: push from the block's centre instead — still smooth, no clamp
+        dx = px - (o.x + o.w / 2); dy = py - (o.y + o.h / 2);
+        d = Math.sqrt(dx * dx + dy * dy) || 1;
       }
+      const ux = dx / d, uy = dy / d;
+      const s = 1 - d / R;               // 0 at the fuzzy edge, 1 at the surface
+      const mag = s * s * p.fieldForce;   // smoothstep-ish: continuous, no kink
+      fx += ux * mag * (1 - p.fieldSwirl) + (-uy) * mag * p.fieldSwirl;
+      fy += uy * mag * (1 - p.fieldSwirl) + (ux) * mag * p.fieldSwirl;
     }
-    return false;
+    out.x = fx; out.y = fy;
   }
 
-  // Send bird i off on a lap. Every departure redraws its own ring — scale,
+  // Send bird i off on a lap.  // Send bird i off on a lap. Every departure redraws its own ring — scale,
   // centre, direction — so no two birds trace the same path and the flock
   // never resolves into a visible circle.
   _roam(i, laps, keepTurn = false) {
@@ -363,6 +366,9 @@ export class Flock {
 
     for (let i = 0; i < n; i++) {
       const xi = x[i], yi = y[i];
+      let Fx = 0, Fy = 0;
+      const si = mode === 'snow' ? 0 : st[i];
+
       let sx = 0, sy = 0, ax = 0, ay = 0, cx = 0, cy = 0, cnt = 0;
       {
         // Separation looks a fifth of a second AHEAD: two birds on crossing
@@ -388,8 +394,6 @@ export class Flock {
           }
         }
       }
-      let Fx = 0, Fy = 0;
-      const si = mode === 'snow' ? 0 : st[i];
       // At home the rules apply softly (the mark holds); on the wing, fully.
       const jostle = si === 0 && homing ? p.homeJostle : 1;
       if (cnt) {
@@ -413,23 +417,14 @@ export class Flock {
         const k = (want - sp) * 0.8;
         Fx += vx[i] / sp * k; Fy += vy[i] / sp * k;
         Fy += 26; Fx += Math.sin(t * 1.4 + ph) * 18;
-      } else if (si === 0) {
+      } else if (si === 0) { // HOME
         // HOME — spring to your point; hover slowly when you're there.
         if (homing) {
           const tx = this.tgt[i * 2] + swayX, ty = this.tgt[i * 2 + 1] + swayY - scroll;
           const dx = tx - xi, dy = ty - yi;
           const homeD = Math.sqrt(dx * dx + dy * dy) || 1e-3;
           const pull = Math.min(homeD * p.homePull, p.homeSpeed);
-          const dv = this._dv; dv.x = dx / homeD * pull; dv.y = dy / homeD * pull;
-          // The pilot brain routes around walls on the way home. A bird so
-          // boxed in that no whisker clears takes a lap and tries later.
-          if (homeD > 70 && !this._steer(i, Math.min(150, homeD))) {
-            this._roam(i, 0.35 + this.random() * 0.65);
-            this.lastA[i] = Math.atan2(yi - ccy, xi - ccx);
-            fx[i] = Fx; fy[i] = Fy;
-            continue;
-          }
-          Fx += (dv.x - vx[i]) * 2.2; Fy += (dv.y - vy[i]) * 2.2;
+          Fx += (dx / homeD * pull - vx[i]) * 2.2; Fy += (dy / homeD * pull - vy[i]) * 2.2;
           const want = p.cruise * Math.min(1, 0.18 + homeD / 90);
           const k = (want - sp) * 0.8;
           Fx += vx[i] / sp * k; Fy += vy[i] / sp * k;
@@ -442,10 +437,8 @@ export class Flock {
         }
       } else if (si === 1) {
         // STARTLE — fly your own way out, hard but never faster than you can.
-        const dv = this._dv;
-        dv.x = this.escx[i] * this.vmax[i] * 1.35; dv.y = this.escy[i] * this.vmax[i] * 1.35;
-        this._steer(i, 130);
-        Fx += (dv.x - vx[i]) * 2.2; Fy += (dv.y - vy[i]) * 2.2;
+        Fx += (this.escx[i] * this.vmax[i] * 1.35 - vx[i]) * 2.2;
+        Fy += (this.escy[i] * this.vmax[i] * 1.35 - vy[i]) * 2.2;
         this.stT[i] -= dt;
         if (this.stT[i] <= 0) {
           // Temperament: homebodies head straight back; the rest calm down
@@ -475,10 +468,8 @@ export class Flock {
         let ux = qx / qd * rX, uy = qy / qd * rY;
         const ul = Math.sqrt(ux * ux + uy * uy) || 1e-3; ux /= ul; uy /= ul;
         let rad = (1 - qd) * 110; rad = rad > 60 ? 60 : rad < -60 ? -60 : rad;
-        const dv = this._dv;
-        dv.x = tx * roamSp + ux * rad; dv.y = ty * roamSp + uy * rad;
-        this._steer(i, 120);
-        Fx += (dv.x - vx[i]) * 1.6; Fy += (dv.y - vy[i]) * 1.6;
+        Fx += (tx * roamSp + ux * rad - vx[i]) * 1.6;
+        Fy += (ty * roamSp + uy * rad - vy[i]) * 1.6;
         const a = Math.atan2(qy, qx);
         let da = a - this.lastA[i];
         if (da > Math.PI) da -= 6.283; else if (da < -Math.PI) da += 6.283;
@@ -500,16 +491,7 @@ export class Flock {
             this.stT[i] = 0.4 + this.random() * 0.6;
             const spread = (this.random() - 0.5) * 2.1; // ±60° of temperament
             const ca = Math.cos(spread), sa = Math.sin(spread);
-            let ex = (dx * ca - dy * sa) / d, ey = (dx * sa + dy * ca) / d;
-            // If that heading dives into the content, mirror the spread.
-            const lx2 = xi + ex * 110, ly2 = yi + ey * 110 + scroll;
-            for (const o of this.obstacles) {
-              if (lx2 > o.x && lx2 < o.x + o.w && ly2 > o.y && ly2 < o.y + o.h) {
-                ex = (dx * ca + dy * sa) / d; ey = (-dx * sa + dy * ca) / d;
-                break;
-              }
-            }
-            this.escx[i] = ex; this.escy[i] = ey;
+            this.escx[i] = (dx * ca - dy * sa) / d; this.escy[i] = (dx * sa + dy * ca) / d;
           }
         }
       }
@@ -522,32 +504,23 @@ export class Flock {
           Fy += dy / d * 140 * a.k * s + (dx / d) * 30 * a.k * (1 - s);
         }
       }
-      // The content is a wall (document space — subtract the scroll).
-      // A moving bird SEES a wall coming ~0.8 s ahead and banks around it;
-      // if it still touches, it is pushed off the face and its crossing
-      // velocity is killed, so it skims, never crosses.
+      // The content: one smooth, fuzzy push — see the header note on why
+      // this replaced hard walls. Not felt at all in HOME (the mark holds
+      // its own shape regardless of what's beneath it), only softly while
+      // roaming or startled, so it reads as ambient guidance, never a cage.
+      if (mode !== 'snow' && si !== 0 && this.obstacles.length) {
+        const fv = this._dv;
+        this._fieldForce(xi, yi + scroll, fv);
+        Fx += fv.x; Fy += fv.y;
+      }
+
+      // Generic unstick: whatever the cause, a bird that stays near-still
+      // for two seconds while off the mark breaks out on a random heading.
+      // With no hard walls this rarely fires — it's a safety net, not a
+      // load-bearing mechanic.
       {
-        const ydoc = yi + scroll;
         const sp2 = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
-        // Contact is the last resort (the pilot brain usually steers clear
-        // first): a fuzzy per-bird margin plus a personal along-the-wall
-        // drift, so even a crowd shoved off a face scatters along it
-        // instead of forming a bead-line.
-        const m = 14 + this.op[i] * 14;
-        const drift = Math.sin(t * 1.1 + ph * 2.7) * 150;
-        for (const o of this.obstacles) {
-          if (xi > o.x - m && xi < o.x + o.w + m && ydoc > o.y - m && ydoc < o.y + o.h + m) {
-            const lx = xi - (o.x - m), rx2 = (o.x + o.w + m) - xi, ty = ydoc - (o.y - m), by = (o.y + o.h + m) - ydoc;
-            const mn = Math.min(lx, rx2, ty, by);
-            if (mn === lx) { Fx -= 800; Fy += drift; if (vx[i] > 0) vx[i] *= 0.15; }
-            else if (mn === rx2) { Fx += 800; Fy += drift; if (vx[i] < 0) vx[i] *= 0.15; }
-            else if (mn === ty) { Fy -= 800; Fx += drift; if (vy[i] > 0) vy[i] *= 0.15; }
-            else { Fy += 800; Fx += drift; if (vy[i] < 0) vy[i] *= 0.15; }
-          }
-        }
-        // Wedged somewhere? After two near-stationary seconds away from the
-        // mark, break out on a random heading rather than sit there.
-        if (sp2 < 7 && (st[i] !== 0 || hbOut)) {
+        if (sp2 < 6 && si !== 0) {
           this.slow[i] += dt;
           if (this.slow[i] > 2) {
             this.slow[i] = 0; st[i] = 1; this.stT[i] = 0.5;
@@ -824,6 +797,7 @@ export class Runner {
       case 'gravity': if (f) { f.gravity.x = m.x; f.gravity.y = m.y; } break;
       case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(120); } break;
       case 'scroll': if (f) f.scroll = m.y; break;
+      case 'snapshot': this.onsnapshot?.({ x: [...f.x], y: [...f.y], vx: [...f.vx], vy: [...f.vy], st: [...f.st], scroll: f.scroll, obstacles: f.obstacles }); break;
       case 'home': f?.setHome(m.points, m.aspect, m.box); if (this.still) this.settle(); break;
       case 'home-box': f?.moveHome(m.box); if (this.still) this.settle(240); break;
       case 'home-off': f?.clearHome(); break;

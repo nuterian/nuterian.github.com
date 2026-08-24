@@ -108,22 +108,28 @@ img, svg { display: block; max-width: 100%; height: auto; }
 
 /* --- The flock's canvas, and the still for when there's no script -------- */
 /* The birds live in the VIEWPORT, not on the page: the canvas is fixed, and
- * the content walls scroll through their world (the worker offsets them by
- * the scroll position). It bleeds 90px past every edge so a bird can leave
- * the visible page, turn around off-stage, and come back — no visible
- * rebounds. DPR ≤ 1.5 keeps the layer cheap. */
+ * the content scrolls through their world (the worker offsets it by the
+ * scroll position). It bleeds 90px past every edge so a bird can leave the
+ * visible page, turn around off-stage, and come back — no visible rebounds.
+ * DPR ≤ 1.5 keeps the layer cheap.
+ *
+ * It sits ABOVE the page content (z-index higher than .hero/main/footer):
+ * the content is a soft field the birds are nudged away from, not a wall,
+ * so occasionally one drifts over the text — and since it renders on top,
+ * that reads as a bird flying over the page, not as a glitch underneath
+ * it. pointer-events stay none, so it's invisible to clicks and hover. */
 #flock, .still {
   position: fixed;
   top: -90px; left: -90px;
   width: calc(100vw + 180px);
   height: calc(100svh + 180px);
-  z-index: 0; pointer-events: none;
+  z-index: 2; pointer-events: none;
 }
 .still { color: var(--flock); }
 .js .still { display: none; }
 .still polyline { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.25; }
 
-/* Everything real sits above the canvas, but lets hover through where empty. */
+/* Content sits below the flock but above the page background. */
 .hero, main, .site-footer { position: relative; z-index: 1; pointer-events: none; }
 .hero *, main *, .site-footer * { pointer-events: auto; }
 
