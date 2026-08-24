@@ -23,9 +23,14 @@
  *             per bird — and even a settled flock sheds the odd restless bird
  *             into a lap, so the idle state is never everyone at once.
  *
- * The page's text is sent in as rectangles the birds cannot cross; the canvas
- * bleeds past the viewport so a bird can leave the visible page, turn around
- * out of sight, and come back naturally instead of bouncing off an edge.
+ * The world is the VIEWPORT (plus a 90 px bleed): the canvas is fixed, and
+ * the page's content — the text walls, the mark's anchor — lives in document
+ * coordinates that the worker offsets by the scroll position (one tiny
+ * message per scrolled frame; no layout reads). So scrolling sweeps the
+ * content through the birds' sky: they dodge the text as it passes, they
+ * don't ride the page. When the mark scrolls out of view its birds disperse
+ * into ambient roaming around whatever whitespace is on screen, and regroup
+ * when it returns.
  *
  * Units: CSS pixels and seconds, in canvas-local coordinates. Fixed 1/60
  * timestep; frames without a step are not redrawn; the hot loops allocate
@@ -137,7 +142,9 @@ export class Flock {
     this.mode = 'home';
     this.pointer = { x: -1e4, y: -1e4, on: false, speed: 0 };
     this.attractors = [];   // {x, y, r, k, until}
-    this.obstacles = [];    // {x, y, w, h} — the content; birds cannot cross it
+    this.obstacles = [];    // {x, y, w, h} in document(+bleed) space — the content walls
+    this.scroll = 0;        // document scroll offset; world y = doc y − scroll
+    this._hbOut = false;    // whether the mark is currently scrolled out of view
     this.gravity = { x: 0, y: 0 }; // from device tilt
     this.home = null;       // {points, aspect, box:{x,y,w,h}} — where the flock belongs
     this.tempo = 1;         // global speed multiplier (dims when a sheet is open)
@@ -169,6 +176,9 @@ export class Flock {
     this.rjit = grow(this.rjit, () => 1);  // personal ring scale, redrawn each departure
     this.cjx = grow(this.cjx, () => 0);    // personal ring centre offset
     this.cjy = grow(this.cjy, () => 0);
+    this.slow = grow(this.slow, () => 0);  // seconds spent near-stationary away from home
+    const evac = new Uint8Array(n); if (this.evac) evac.set(this.evac.subarray(0, Math.min(old, n)));
+    this.evac = evac; // roaming only because the mark scrolled away
     const st = new Uint8Array(n); if (this.st) st.set(this.st.subarray(0, Math.min(old, n)));
     this.st = st; // 0 home · 1 startled · 2 roaming
     this.fx = new Float32Array(n);
@@ -283,20 +293,29 @@ export class Flock {
       next[i] = heads[b]; heads[b] = i;
     }
 
-    const per2 = p.perception * p.perception, sep2 = p.separation * p.separation;
+    const per2 = p.perception * p.perception;
+    const scroll = this.scroll;
     const homing = mode === 'home' && !!this.tgt;
+
+    // Is the mark on screen? When it scrolls away, its birds disperse into
+    // ambient roaming; when it returns, they wrap up their laps and regroup.
+    const hb = this.home?.box;
+    const hbOut = !!hb && (hb.y + hb.h - scroll < 40 || hb.y - scroll > this.h - 40);
+    if (hbOut !== this._hbOut && homing) {
+      this._hbOut = hbOut;
+      for (let i = 0; i < this.n; i++) {
+        if (hbOut && this.st[i] === 0) { this._roam(i, 40); this.evac[i] = 1; this.lastA[i] = Math.atan2(this.y[i] - this.h * 0.45, this.x[i] - this.w / 2); }
+        else if (!hbOut && this.evac[i]) { this.lapR[i] = Math.min(this.lapR[i], (0.15 + this.random() * 0.6) * 6.283); this.evac[i] = 0; }
+      }
+    }
     // The whole mark sways very slowly, so even at rest it is never a still image.
     const swayX = Math.sin(t * 0.31) * 5, swayY = Math.cos(t * 0.23) * 4;
-    // The campus loop: a wide ellipse around the mark, lifted above the
-    // content at the bottom so a lap never grinds along the text's wall.
-    const ccx = this.w / 2, ccy = this.h * 0.40;
+    // The campus loop: a wide ellipse through the viewport's open space.
+    // (Walls are dodged by lookahead, not by shrinking the ring.)
+    const ccx = this.w / 2, ccy = this.h * 0.45;
     const markR = this.home ? Math.max(this.home.box.w, this.home.box.h) * 0.55 : 180;
     const ringX = Math.max(this.w * 0.36, markR + 90);
-    const ringY = Math.max(this.h * 0.26, markR * 0.7 + 70);
-    // No personal ring may dip into the content: a ring pulling down against
-    // the wall pushing up would pin a bird in place, queuing on the spot.
-    let wallY = this.h + 1e4;
-    for (const o of this.obstacles) if (o.y < wallY) wallY = o.y;
+    const ringY = Math.max(this.h * 0.28, markR * 0.7 + 70);
     const ptr = this.pointer;
     const ptrMoving = ptr.on && ptr.speed > 2.5;
 
@@ -304,6 +323,14 @@ export class Flock {
       const xi = x[i], yi = y[i];
       let sx = 0, sy = 0, ax = 0, ay = 0, cx = 0, cy = 0, cnt = 0;
       {
+        // Separation looks a fifth of a second AHEAD: two birds on crossing
+        // paths veer around each other instead of phasing through. Faster
+        // birds also keep proportionally more clearance.
+        const spi = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+        const sepR = p.separation + spi * 0.14;
+        const sep2i = sepR * sepR;
+        const L = 0.2;
+        const fxi = xi + vx[i] * L, fyi = yi + vy[i] * L;
         const gx = (xi / cell) | 0, gy = (yi / cell) | 0;
         for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
           const bx = gx + ox, by = gy + oy;
@@ -312,7 +339,9 @@ export class Flock {
             if (j === i) continue;
             const dx = x[j] - xi, dy = y[j] - yi, d2 = dx * dx + dy * dy;
             if (d2 > per2 || d2 === 0) continue;
-            if (d2 < sep2) { const d = Math.sqrt(d2); sx -= dx / d * (1 - d / p.separation); sy -= dy / d * (1 - d / p.separation); }
+            const pdx = (x[j] + vx[j] * L) - fxi, pdy = (y[j] + vy[j] * L) - fyi;
+            const pd2 = pdx * pdx + pdy * pdy;
+            if (pd2 < sep2i && pd2 > 1e-4) { const d = Math.sqrt(pd2); const wgt = 1 - d / sepR; sx -= pdx / d * wgt; sy -= pdy / d * wgt; }
             ax += vx[j]; ay += vy[j]; cx += dx; cy += dy; cnt++;
           }
         }
@@ -345,7 +374,7 @@ export class Flock {
       } else if (si === 0) {
         // HOME — spring to your point; hover slowly when you're there.
         if (homing) {
-          const tx = this.tgt[i * 2] + swayX, ty = this.tgt[i * 2 + 1] + swayY;
+          const tx = this.tgt[i * 2] + swayX, ty = this.tgt[i * 2 + 1] + swayY - scroll;
           const dx = tx - xi, dy = ty - yi;
           const homeD = Math.sqrt(dx * dx + dy * dy) || 1e-3;
           const pull = Math.min(homeD * p.homePull, p.homeSpeed);
@@ -362,8 +391,8 @@ export class Flock {
         }
       } else if (si === 1) {
         // STARTLE — fly your own way out, hard but never faster than you can.
-        Fx += (this.escx[i] * this.vmax[i] * 1.35 - vx[i]) * 2.6;
-        Fy += (this.escy[i] * this.vmax[i] * 1.35 - vy[i]) * 2.6;
+        Fx += (this.escx[i] * this.vmax[i] * 1.35 - vx[i]) * 2.2;
+        Fy += (this.escy[i] * this.vmax[i] * 1.35 - vy[i]) * 2.2;
         this.stT[i] -= dt;
         if (this.stT[i] <= 0) {
           // Temperament: homebodies head straight back; the rest calm down
@@ -382,8 +411,7 @@ export class Flock {
         // roamers make a loose swirl, never a drawn circle.
         const breathe = this.rjit[i] * (1 + 0.09 * Math.sin(t * 0.21 + ph));
         const cX = ccx + this.cjx[i], cY = ccy + this.cjy[i];
-        const rX = ringX * breathe;
-        const rY = Math.min(ringY * breathe, Math.max(90, wallY - 34 - cY));
+        const rX = ringX * breathe, rY = ringY * breathe;
         const qx = (xi - cX) / rX, qy = (yi - cY) / rY;
         const qd = Math.sqrt(qx * qx + qy * qy) || 1e-3;
         const roamSp = p.roamSpeed * (0.8 + 0.4 * this.op[i]);
@@ -394,8 +422,8 @@ export class Flock {
         let ux = qx / qd * rX, uy = qy / qd * rY;
         const ul = Math.sqrt(ux * ux + uy * uy) || 1e-3; ux /= ul; uy /= ul;
         let rad = (1 - qd) * 110; rad = rad > 60 ? 60 : rad < -60 ? -60 : rad;
-        Fx += (tx * roamSp + ux * rad - vx[i]) * 2.0;
-        Fy += (ty * roamSp + uy * rad - vy[i]) * 2.0;
+        Fx += (tx * roamSp + ux * rad - vx[i]) * 1.6;
+        Fy += (ty * roamSp + uy * rad - vy[i]) * 1.6;
         const a = Math.atan2(qy, qx);
         let da = a - this.lastA[i];
         if (da > Math.PI) da -= 6.283; else if (da < -Math.PI) da += 6.283;
@@ -419,7 +447,7 @@ export class Flock {
             const ca = Math.cos(spread), sa = Math.sin(spread);
             let ex = (dx * ca - dy * sa) / d, ey = (dx * sa + dy * ca) / d;
             // If that heading dives into the content, mirror the spread.
-            const lx2 = xi + ex * 110, ly2 = yi + ey * 110;
+            const lx2 = xi + ex * 110, ly2 = yi + ey * 110 + scroll;
             for (const o of this.obstacles) {
               if (lx2 > o.x && lx2 < o.x + o.w && ly2 > o.y && ly2 < o.y + o.h) {
                 ex = (dx * ca + dy * sa) / d; ey = (-dx * sa + dy * ca) / d;
@@ -439,18 +467,42 @@ export class Flock {
           Fy += dy / d * 140 * a.k * s + (dx / d) * 30 * a.k * (1 - s);
         }
       }
-      // The content is a wall. Push out along the nearest face, and kill the
-      // velocity component that points into it, so birds skim, never cross.
-      for (const o of this.obstacles) {
-        const m = 18;
-        if (xi > o.x - m && xi < o.x + o.w + m && yi > o.y - m && yi < o.y + o.h + m) {
-          const lx = xi - (o.x - m), rx2 = (o.x + o.w + m) - xi, ty = yi - (o.y - m), by = (o.y + o.h + m) - yi;
-          const mn = Math.min(lx, rx2, ty, by);
-          if (mn === lx) { Fx -= 800; if (vx[i] > 0) vx[i] *= 0.15; }
-          else if (mn === rx2) { Fx += 800; if (vx[i] < 0) vx[i] *= 0.15; }
-          else if (mn === ty) { Fy -= 800; if (vy[i] > 0) vy[i] *= 0.15; }
-          else { Fy += 800; if (vy[i] < 0) vy[i] *= 0.15; }
+      // The content is a wall (document space — subtract the scroll).
+      // A moving bird SEES a wall coming ~0.8 s ahead and banks around it;
+      // if it still touches, it is pushed off the face and its crossing
+      // velocity is killed, so it skims, never crosses.
+      {
+        const ydoc = yi + scroll;
+        const sp2 = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+        const seeing = sp2 > 24;
+        const px2 = xi + (seeing ? vx[i] / sp2 * 86 : 0), py2 = ydoc + (seeing ? vy[i] / sp2 * 86 : 0);
+        for (const o of this.obstacles) {
+          const m = 18;
+          if (seeing && px2 > o.x - m && px2 < o.x + o.w + m && py2 > o.y - m && py2 < o.y + o.h + m) {
+            // Bank away from the wall's centre, perpendicular to travel.
+            const ocx = o.x + o.w / 2, ocy = o.y + o.h / 2;
+            const side = vx[i] * (ocy - ydoc) - vy[i] * (ocx - xi) > 0 ? -1 : 1;
+            Fx += (-vy[i] / sp2) * side * 300; Fy += (vx[i] / sp2) * side * 300;
+          }
+          if (xi > o.x - m && xi < o.x + o.w + m && ydoc > o.y - m && ydoc < o.y + o.h + m) {
+            const lx = xi - (o.x - m), rx2 = (o.x + o.w + m) - xi, ty = ydoc - (o.y - m), by = (o.y + o.h + m) - ydoc;
+            const mn = Math.min(lx, rx2, ty, by);
+            if (mn === lx) { Fx -= 800; if (vx[i] > 0) vx[i] *= 0.15; }
+            else if (mn === rx2) { Fx += 800; if (vx[i] < 0) vx[i] *= 0.15; }
+            else if (mn === ty) { Fy -= 800; if (vy[i] > 0) vy[i] *= 0.15; }
+            else { Fy += 800; if (vy[i] < 0) vy[i] *= 0.15; }
+          }
         }
+        // Wedged somewhere? After two near-stationary seconds away from the
+        // mark, break out on a random heading rather than sit there.
+        if (sp2 < 7 && (st[i] !== 0 || hbOut)) {
+          this.slow[i] += dt;
+          if (this.slow[i] > 2) {
+            this.slow[i] = 0; st[i] = 1; this.stT[i] = 0.5;
+            const a2 = this.random() * 6.283;
+            this.escx[i] = Math.cos(a2); this.escy[i] = Math.sin(a2);
+          }
+        } else this.slow[i] = 0;
       }
       // Edges: nothing at all while inside — the canvas bleeds past the
       // viewport, so a bird flies out of sight, turns around off-stage, and
@@ -719,6 +771,7 @@ export class Runner {
       case 'attract': f?.attract(m.x, m.y, m.r, m.k, m.life, m.id); break;
       case 'gravity': if (f) { f.gravity.x = m.x; f.gravity.y = m.y; } break;
       case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(120); } break;
+      case 'scroll': if (f) f.scroll = m.y; break;
       case 'home': f?.setHome(m.points, m.aspect, m.box); if (this.still) this.settle(); break;
       case 'home-box': f?.moveHome(m.box); if (this.still) this.settle(240); break;
       case 'home-off': f?.clearHome(); break;

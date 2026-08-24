@@ -29,10 +29,21 @@ fallback. The main thread only sends small messages (pointer, where home is).
   full rounds (random per bird), before drifting home. So a disrupted flock takes real
   time to reassemble, staggered bird by bird, and the idle state is never 100 % of the
   flock at once: a settled flock always has a few birds on a lap.
-- **The content is a wall.** The page's text blocks are sent in as rectangles; birds are
-  pushed off the faces and their crossing velocity is killed, so they skim and never
-  overlap the words. The roam ellipse is lifted above the text so laps don't grind
-  along it.
+- **The birds live in the viewport, not on the page.** The canvas is fixed; the content
+  walls and the mark's anchor live in document coordinates and the worker offsets them by
+  the scroll position (one tiny message per scrolled frame, no layout reads). Scrolling
+  sweeps the text through the birds' sky: they bank around walls they see coming (~0.8 s
+  lookahead) instead of riding the page. When the mark scrolls out of view its birds
+  disperse and roam the whitespace around whatever is on screen — the archive gets its
+  birds — then wrap up their laps and regroup when the mark returns.
+- **The content is a wall.** Rectangles for the hero text, archive header, rows and
+  footer; a bird that still touches one is pushed off the face and its crossing velocity
+  is killed, so it skims, never crosses. A bird wedged near-stationary for two seconds
+  breaks out on a random heading.
+- **Birds see each other.** Separation is computed on positions a fifth of a second
+  ahead, with clearance that grows with speed — two birds on crossing paths veer around
+  each other rather than phasing through, and alignment folds neighbours' motion into
+  every turn.
 - **Edges are off-stage, not walls.** The canvas bleeds 90 px past every viewport edge
   and nothing pulls a bird back until it leaves the canvas entirely — so birds exit the
   visible page, turn around out of sight, and re-enter naturally. No visible rebounds.

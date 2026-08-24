@@ -76,14 +76,16 @@ function measureWorld() {
   world = { w: Math.max(1, Math.round(r.width)), h: Math.max(1, Math.round(r.height)) };
   return world;
 }
-// The content is a wall the birds cannot cross. Both rects are page-anchored,
-// so canvas-local offsets are stable until the next resize.
+// The content walls, in document(+bleed) space — sent once per layout; the
+// worker subtracts the live scroll offset, so scrolling reads no layout.
 function sendObstacles() {
-  const c = canvas.getBoundingClientRect();
-  const rects = $$('[data-obstacle]').map(el => {
-    const r = el.getBoundingClientRect();
-    return { x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height };
-  }).filter(r => r.y < world.h && r.y + r.h > 0);
+  const wide = vw() >= 700;
+  const rects = $$('[data-obstacle]')
+    .filter(el => wide || !el.dataset.obstacleWide)
+    .map(el => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left + 90, y: r.top + scrollY + 90, w: r.width, h: r.height };
+    });
   post({ type: 'obstacles', rects });
 }
 // 1.5x is plenty for 1.25 px strokes the shader already feathers, and it is
@@ -147,12 +149,14 @@ addEventListener('resize', () => {
     sendHome(false); sendObstacles();
   });
 }, { passive: true });
-let heroSeen = true;
-if ('IntersectionObserver' in window) {
-  new IntersectionObserver(([en]) => { heroSeen = en.isIntersecting; post({ type: 'visible', value: heroSeen && !document.hidden }); })
-    .observe(canvas);
-}
-document.addEventListener('visibilitychange', () => post({ type: 'visible', value: heroSeen && !document.hidden }));
+document.addEventListener('visibilitychange', () => post({ type: 'visible', value: !document.hidden }));
+// The birds' sky is fixed; the page scrolls through it. One tiny message per
+// scrolled frame — the worker does the subtraction, we read no layout here.
+let scrollRaf = 0;
+addEventListener('scroll', () => {
+  if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; post({ type: 'scroll', y: scrollY }); });
+}, { passive: true });
+post({ type: 'scroll', y: scrollY });
 
 /* ---------------------------------------------------------------------------
  * 3. What you do
@@ -210,9 +214,8 @@ let markCx = 0.5, markCy = 0.5;
   markCx = sx / (MARK.length / 2) / 100; markCy = sy / (MARK.length / 2) / 100; }
 function homeBox() {
   const { w, h } = world;
-  const c = canvas.getBoundingClientRect();
   const text = $('.hero-text').getBoundingClientRect();
-  const textTop = text.top - c.top;             // canvas-local
+  const textTop = text.top + scrollY + 90;      // document(+bleed) space
   const bw = Math.min((w - 180) * 0.5, 660);
   const bh = bw / MARK_ASPECT;
   const cy = Math.max(bh / 2 + 60, Math.min(textTop * 0.52, h * 0.5));

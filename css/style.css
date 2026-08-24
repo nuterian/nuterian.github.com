@@ -107,13 +107,13 @@ img, svg { display: block; max-width: 100%; height: auto; }
 .skip:focus-visible { top: 1rem; }
 
 /* --- The flock's canvas, and the still for when there's no script -------- */
-/* The canvas spans the hero and bleeds 90px past every edge, so a bird can
- * fly out of the visible page, turn around off-stage, and come back — no
- * visible rebounds. It is absolute, not fixed: the compositor scrolls it
- * with the text for free. It renders at DPR ≤ 1.5 to keep the layer cheap.
- * CSS owns this box so the no-script still shares it exactly. */
+/* The birds live in the VIEWPORT, not on the page: the canvas is fixed, and
+ * the content walls scroll through their world (the worker offsets them by
+ * the scroll position). It bleeds 90px past every edge so a bird can leave
+ * the visible page, turn around off-stage, and come back — no visible
+ * rebounds. DPR ≤ 1.5 keeps the layer cheap. */
 #flock, .still {
-  position: absolute;
+  position: fixed;
   top: -90px; left: -90px;
   width: calc(100vw + 180px);
   height: calc(100svh + 180px);
