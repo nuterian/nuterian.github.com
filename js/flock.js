@@ -166,6 +166,9 @@ export class Flock {
     this.lapR = grow(this.lapR, () => 0); // roam radians left before heading home
     this.lastA = grow(this.lastA, () => 0);
     this.odir = grow(this.odir, () => (this.random() < 0.5 ? -1 : 1)); // orbit direction
+    this.rjit = grow(this.rjit, () => 1);  // personal ring scale, redrawn each departure
+    this.cjx = grow(this.cjx, () => 0);    // personal ring centre offset
+    this.cjy = grow(this.cjy, () => 0);
     const st = new Uint8Array(n); if (this.st) st.set(this.st.subarray(0, Math.min(old, n)));
     this.st = st; // 0 home · 1 startled · 2 roaming
     this.fx = new Float32Array(n);
@@ -218,6 +221,18 @@ export class Flock {
 
   season(name) { // 'snow' | null
     this.mode = name === 'snow' ? 'snow' : 'home';
+  }
+
+  // Send bird i off on a lap. Every departure redraws its own ring — scale,
+  // centre, direction — so no two birds trace the same path and the flock
+  // never resolves into a visible circle.
+  _roam(i, laps, keepTurn = false) {
+    this.st[i] = 2;
+    this.lapR[i] = laps * 6.283;
+    this.rjit[i] = 0.72 + this.random() * 0.55;
+    this.cjx[i] = (this.random() - 0.5) * 150;
+    this.cjy[i] = (this.random() - 0.5) * 110;
+    if (!keepTurn) this.odir[i] = this.random() < 0.5 ? -1 : 1;
   }
 
   // --- Simulation -----------------------------------------------------------
@@ -278,6 +293,10 @@ export class Flock {
     const markR = this.home ? Math.max(this.home.box.w, this.home.box.h) * 0.55 : 180;
     const ringX = Math.max(this.w * 0.36, markR + 90);
     const ringY = Math.max(this.h * 0.26, markR * 0.7 + 70);
+    // No personal ring may dip into the content: a ring pulling down against
+    // the wall pushing up would pin a bird in place, queuing on the spot.
+    let wallY = this.h + 1e4;
+    for (const o of this.obstacles) if (o.y < wallY) wallY = o.y;
     const ptr = this.pointer;
     const ptrMoving = ptr.on && ptr.speed > 2.5;
 
@@ -337,8 +356,7 @@ export class Flock {
           // Restlessness: now and then a settled bird just leaves for a lap,
           // so the idle flock is never the whole flock.
           if (homeD < 26 && this.random() < p.restless * dt) {
-            st[i] = 2; this.lapR[i] = (0.4 + this.random() * 1.1) * 6.283;
-            this.odir[i] = this.random() < 0.5 ? -1 : 1;
+            this._roam(i, 0.4 + this.random() * 1.1);
             this.lastA[i] = Math.atan2((yi - ccy) / ringY, (xi - ccx) / ringX);
           }
         }
@@ -347,26 +365,35 @@ export class Flock {
         Fx += (this.escx[i] * this.vmax[i] * 1.35 - vx[i]) * 2.6;
         Fy += (this.escy[i] * this.vmax[i] * 1.35 - vy[i]) * 2.6;
         this.stT[i] -= dt;
-        if (this.stT[i] <= 0) { // calm down into a lap around the campus
-          st[i] = 2;
-          this.lapR[i] = (1 + this.random()) * 6.283; // one to two full rounds
-          const cross = (xi - ccx) * vy[i] - (yi - ccy) * vx[i];
-          this.odir[i] = cross >= 0 ? 1 : -1;         // keep turning the way you already are
-          this.lastA[i] = Math.atan2((yi - ccy) / ringY, (xi - ccx) / ringX);
+        if (this.stT[i] <= 0) {
+          // Temperament: homebodies head straight back; the rest calm down
+          // into one or two full rounds on a ring of their own.
+          if (this.random() < 0.45) st[i] = 0;
+          else {
+            this._roam(i, 1 + this.random(), true);
+            const cross = (xi - ccx) * vy[i] - (yi - ccy) * vx[i];
+            this.odir[i] = cross >= 0 ? 1 : -1;       // keep turning the way you already are
+            this.lastA[i] = Math.atan2((yi - ccy) / ringY, (xi - ccx) / ringX);
+          }
         }
       } else {
         // ROAM — a wide elliptical lap through the open space, then home.
-        // Work in ellipse space (the ring is a unit circle there).
-        const qx = (xi - ccx) / ringX, qy = (yi - ccy) / ringY;
+        // Each bird flies its own ring (scale, centre, slow breathing), so
+        // roamers make a loose swirl, never a drawn circle.
+        const breathe = this.rjit[i] * (1 + 0.09 * Math.sin(t * 0.21 + ph));
+        const cX = ccx + this.cjx[i], cY = ccy + this.cjy[i];
+        const rX = ringX * breathe;
+        const rY = Math.min(ringY * breathe, Math.max(90, wallY - 34 - cY));
+        const qx = (xi - cX) / rX, qy = (yi - cY) / rY;
         const qd = Math.sqrt(qx * qx + qy * qy) || 1e-3;
         const roamSp = p.roamSpeed * (0.8 + 0.4 * this.op[i]);
         // Tangent of the ellipse, back in real space.
-        let tx = -qy * ringX * this.odir[i], ty = qx * ringY * this.odir[i];
+        let tx = -qy * rX * this.odir[i], ty = qx * rY * this.odir[i];
         const tl = Math.sqrt(tx * tx + ty * ty) || 1e-3; tx /= tl; ty /= tl;
         // Radial correction toward the ring, back in real space.
-        let ux = qx / qd * ringX, uy = qy / qd * ringY;
+        let ux = qx / qd * rX, uy = qy / qd * rY;
         const ul = Math.sqrt(ux * ux + uy * uy) || 1e-3; ux /= ul; uy /= ul;
-        let rad = (1 - qd) * 130; rad = rad > 70 ? 70 : rad < -70 ? -70 : rad;
+        let rad = (1 - qd) * 110; rad = rad > 60 ? 60 : rad < -60 ? -60 : rad;
         Fx += (tx * roamSp + ux * rad - vx[i]) * 2.0;
         Fy += (ty * roamSp + uy * rad - vy[i]) * 2.0;
         const a = Math.atan2(qy, qx);
