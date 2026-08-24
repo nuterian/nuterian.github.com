@@ -147,6 +147,7 @@ export class Flock {
     this._hbOut = false;    // whether the mark is currently scrolled out of view
     this.gravity = { x: 0, y: 0 }; // from device tilt
     this.home = null;       // {points, aspect, box:{x,y,w,h}} — where the flock belongs
+    this._dv = { x: 0, y: 0 }; // desired-velocity scratch for the pilot brain
     this.tempo = 1;         // global speed multiplier (dims when a sheet is open)
     this.setCount(opts.count || 120);
   }
@@ -231,6 +232,47 @@ export class Flock {
 
   season(name) { // 'snow' | null
     this.mode = name === 'snow' ? 'snow' : 'home';
+  }
+
+  // Does the straight line from (x0,y0) to (x1,y1), in document space, cross
+  // any content wall? Slab-clipped segment/rect test — a few ns per rect.
+  _blocked(x0, y0, x1, y1) {
+    for (const o of this.obstacles) {
+      const m = 12;
+      const rx0 = o.x - m, ry0 = o.y - m, rx1 = o.x + o.w + m, ry1 = o.y + o.h + m;
+      const dx = x1 - x0, dy = y1 - y0;
+      let t0 = 0, t1 = 1;
+      if (dx > -1e-6 && dx < 1e-6) { if (x0 < rx0 || x0 > rx1) continue; }
+      else { let a = (rx0 - x0) / dx, b = (rx1 - x0) / dx; if (a > b) { const c = a; a = b; b = c; } if (a > t0) t0 = a; if (b < t1) t1 = b; if (t0 > t1) continue; }
+      if (dy > -1e-6 && dy < 1e-6) { if (y0 < ry0 || y0 > ry1) continue; }
+      else { let a = (ry0 - y0) / dy, b = (ry1 - y0) / dy; if (a > b) { const c = a; a = b; b = c; } if (a > t0) t0 = a; if (b < t1) t1 = b; if (t0 > t1) continue; }
+      return true;
+    }
+    return false;
+  }
+
+  // A little pilot brain, shared by every state: given a desired velocity,
+  // if the way it points is walled within `look` px, try progressively wider
+  // detour angles — the bird's preferred side first, with a pinch of personal
+  // temperament — and fly the first clear heading. Returns false only when
+  // every whisker is blocked (truly boxed in; the wall push handles that).
+  _steer(i, look) {
+    const dv = this._dv;
+    const x0 = this.x[i], y0 = this.y[i] + this.scroll;
+    const m = Math.sqrt(dv.x * dv.x + dv.y * dv.y) || 1e-3;
+    const ux = dv.x / m, uy = dv.y / m;
+    if (!this._blocked(x0, y0, x0 + ux * look, y0 + uy * look)) return true;
+    const pref = this.odir[i];
+    const jit = (this.op[i] - 0.775) * 0.25;
+    for (const a of [0.55, 1.1, 1.7, 2.4]) {
+      for (let k = 0; k < 2; k++) {
+        const ang = a * (k === 0 ? pref : -pref) + jit;
+        const ca = Math.cos(ang), sa = Math.sin(ang);
+        const rx = ux * ca - uy * sa, ry = ux * sa + uy * ca;
+        if (!this._blocked(x0, y0, x0 + rx * look, y0 + ry * look)) { dv.x = rx * m; dv.y = ry * m; return true; }
+      }
+    }
+    return false;
   }
 
   // Send bird i off on a lap. Every departure redraws its own ring — scale,
@@ -378,7 +420,16 @@ export class Flock {
           const dx = tx - xi, dy = ty - yi;
           const homeD = Math.sqrt(dx * dx + dy * dy) || 1e-3;
           const pull = Math.min(homeD * p.homePull, p.homeSpeed);
-          Fx += (dx / homeD * pull - vx[i]) * 2.2; Fy += (dy / homeD * pull - vy[i]) * 2.2;
+          const dv = this._dv; dv.x = dx / homeD * pull; dv.y = dy / homeD * pull;
+          // The pilot brain routes around walls on the way home. A bird so
+          // boxed in that no whisker clears takes a lap and tries later.
+          if (homeD > 70 && !this._steer(i, Math.min(150, homeD))) {
+            this._roam(i, 0.35 + this.random() * 0.65);
+            this.lastA[i] = Math.atan2(yi - ccy, xi - ccx);
+            fx[i] = Fx; fy[i] = Fy;
+            continue;
+          }
+          Fx += (dv.x - vx[i]) * 2.2; Fy += (dv.y - vy[i]) * 2.2;
           const want = p.cruise * Math.min(1, 0.18 + homeD / 90);
           const k = (want - sp) * 0.8;
           Fx += vx[i] / sp * k; Fy += vy[i] / sp * k;
@@ -391,8 +442,10 @@ export class Flock {
         }
       } else if (si === 1) {
         // STARTLE — fly your own way out, hard but never faster than you can.
-        Fx += (this.escx[i] * this.vmax[i] * 1.35 - vx[i]) * 2.2;
-        Fy += (this.escy[i] * this.vmax[i] * 1.35 - vy[i]) * 2.2;
+        const dv = this._dv;
+        dv.x = this.escx[i] * this.vmax[i] * 1.35; dv.y = this.escy[i] * this.vmax[i] * 1.35;
+        this._steer(i, 130);
+        Fx += (dv.x - vx[i]) * 2.2; Fy += (dv.y - vy[i]) * 2.2;
         this.stT[i] -= dt;
         if (this.stT[i] <= 0) {
           // Temperament: homebodies head straight back; the rest calm down
@@ -422,8 +475,10 @@ export class Flock {
         let ux = qx / qd * rX, uy = qy / qd * rY;
         const ul = Math.sqrt(ux * ux + uy * uy) || 1e-3; ux /= ul; uy /= ul;
         let rad = (1 - qd) * 110; rad = rad > 60 ? 60 : rad < -60 ? -60 : rad;
-        Fx += (tx * roamSp + ux * rad - vx[i]) * 1.6;
-        Fy += (ty * roamSp + uy * rad - vy[i]) * 1.6;
+        const dv = this._dv;
+        dv.x = tx * roamSp + ux * rad; dv.y = ty * roamSp + uy * rad;
+        this._steer(i, 120);
+        Fx += (dv.x - vx[i]) * 1.6; Fy += (dv.y - vy[i]) * 1.6;
         const a = Math.atan2(qy, qx);
         let da = a - this.lastA[i];
         if (da > Math.PI) da -= 6.283; else if (da < -Math.PI) da += 6.283;
@@ -474,23 +529,20 @@ export class Flock {
       {
         const ydoc = yi + scroll;
         const sp2 = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
-        const seeing = sp2 > 24;
-        const px2 = xi + (seeing ? vx[i] / sp2 * 86 : 0), py2 = ydoc + (seeing ? vy[i] / sp2 * 86 : 0);
+        // Contact is the last resort (the pilot brain usually steers clear
+        // first): a fuzzy per-bird margin plus a personal along-the-wall
+        // drift, so even a crowd shoved off a face scatters along it
+        // instead of forming a bead-line.
+        const m = 14 + this.op[i] * 14;
+        const drift = Math.sin(t * 1.1 + ph * 2.7) * 150;
         for (const o of this.obstacles) {
-          const m = 18;
-          if (seeing && px2 > o.x - m && px2 < o.x + o.w + m && py2 > o.y - m && py2 < o.y + o.h + m) {
-            // Bank away from the wall's centre, perpendicular to travel.
-            const ocx = o.x + o.w / 2, ocy = o.y + o.h / 2;
-            const side = vx[i] * (ocy - ydoc) - vy[i] * (ocx - xi) > 0 ? -1 : 1;
-            Fx += (-vy[i] / sp2) * side * 300; Fy += (vx[i] / sp2) * side * 300;
-          }
           if (xi > o.x - m && xi < o.x + o.w + m && ydoc > o.y - m && ydoc < o.y + o.h + m) {
             const lx = xi - (o.x - m), rx2 = (o.x + o.w + m) - xi, ty = ydoc - (o.y - m), by = (o.y + o.h + m) - ydoc;
             const mn = Math.min(lx, rx2, ty, by);
-            if (mn === lx) { Fx -= 800; if (vx[i] > 0) vx[i] *= 0.15; }
-            else if (mn === rx2) { Fx += 800; if (vx[i] < 0) vx[i] *= 0.15; }
-            else if (mn === ty) { Fy -= 800; if (vy[i] > 0) vy[i] *= 0.15; }
-            else { Fy += 800; if (vy[i] < 0) vy[i] *= 0.15; }
+            if (mn === lx) { Fx -= 800; Fy += drift; if (vx[i] > 0) vx[i] *= 0.15; }
+            else if (mn === rx2) { Fx += 800; Fy += drift; if (vx[i] < 0) vx[i] *= 0.15; }
+            else if (mn === ty) { Fy -= 800; Fx += drift; if (vy[i] > 0) vy[i] *= 0.15; }
+            else { Fy += 800; Fx += drift; if (vy[i] < 0) vy[i] *= 0.15; }
           }
         }
         // Wedged somewhere? After two near-stationary seconds away from the

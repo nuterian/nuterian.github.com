@@ -36,10 +36,18 @@ fallback. The main thread only sends small messages (pointer, where home is).
   lookahead) instead of riding the page. When the mark scrolls out of view its birds
   disperse and roam the whitespace around whatever is on screen — the archive gets its
   birds — then wrap up their laps and regroup when the mark returns.
+- **Every bird has a pilot brain.** Whatever a bird wants to do — fly home, flee, lap
+  the campus — it first checks whether that heading is walled within ~a second of flight
+  (slab-clipped line-of-sight); if so it tries progressively wider detour angles, its
+  preferred side first with a pinch of personal temperament, and flies the first clear
+  heading. Goals behind walls are *routed around*, never leaned on — which is what kills
+  pinned single-file queues along the content's edges. A bird so boxed in that no whisker
+  clears takes a lap instead; one wedged near-stationary for two seconds breaks out on a
+  random heading.
 - **The content is a wall.** Rectangles for the hero text, archive header, rows and
-  footer; a bird that still touches one is pushed off the face and its crossing velocity
-  is killed, so it skims, never crosses. A bird wedged near-stationary for two seconds
-  breaks out on a random heading.
+  footer; a bird that still touches one is pushed off the face with a fuzzy per-bird
+  margin and a personal along-the-wall drift (no bead-lines), and its crossing velocity
+  is killed, so it skims, never crosses.
 - **Birds see each other.** Separation is computed on positions a fifth of a second
   ahead, with clearance that grows with speed — two birds on crossing paths veer around
   each other rather than phasing through, and alignment folds neighbours' motion into
