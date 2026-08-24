@@ -237,8 +237,6 @@ sendHome(true);
  * 4. The archive
  * ------------------------------------------------------------------------- */
 
-const vt = (fn) => (document.startViewTransition && !reduceMotion.matches) ? document.startViewTransition(fn) : (fn(), null);
-
 function openSheet(slug, { push = true } = {}) {
   const node = document.getElementById(slug);
   if (!node || !node.classList.contains('sheet')) return;
@@ -262,7 +260,7 @@ function openSheet(slug, { push = true } = {}) {
     });
   };
   if (push) history.pushState({ slug }, '', `#${slug}`);
-  vt(go);
+  go();
   // The flock dims and slows while you read, and keeps to the margins.
   post({ type: 'tempo', value: 0.35 }); pushStyle({ alpha: 0.8 });
   preview.classList.remove('on');
@@ -360,7 +358,7 @@ if (arrow && 'IntersectionObserver' in window) {
 
 // Console: one line, and a handle to poke at.
 console.log(
-  `%cflock%c ${TARGET} · rules: separation, alignment, cohesion, you · ${inWorker ? 'worker + OffscreenCanvas' : 'main thread'}${STILL ? ' · still' : ''}\n%cwindow.flock — { count, fps, params, home, season(), hue, seed } · ?n= ?seed= ?still ?hue= ?season=snow · press t`,
+  `%cflock%c ${TARGET} · rules: separation, alignment, cohesion, you · ${inWorker ? 'worker + OffscreenCanvas' : 'main thread'}${STILL ? ' · still' : ''} (renderer: flock.where)\n%cwindow.flock — { count, fps, params, home, season(), hue, seed } · ?n= ?seed= ?still ?hue= ?season=snow · press t`,
   'font-weight:600', '', 'color:gray');
 window.flock = {
   get count() { return stats.n; },
@@ -375,6 +373,6 @@ window.flock = {
   get seed() { return seed; },
   get hue() { return hue; },
   set hue(v) { hue = +v; applyHue(); },
-  get where() { return inWorker ? 'worker' : 'main'; },
+  get where() { return `${inWorker ? 'worker' : 'main'} · ${stats.renderer || 'starting'}`; },
   get _runner() { return mainRunner; }, // main-thread only; handy in DevTools
 };

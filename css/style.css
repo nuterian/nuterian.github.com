@@ -237,7 +237,6 @@ dialog#sheet {
   padding: 3.5rem var(--gutter) var(--gutter);
   border: 0; border-radius: 6px 6px 0 0; background: var(--bg); color: var(--fg); overscroll-behavior: contain;
   box-shadow: var(--shadow);
-  view-transition-name: sheet;
 }
 @media (max-width: 700px) { dialog#sheet { --sheet-top: 0px; border-radius: 0; } }
 /* No backdrop paint: the page itself recedes, so the flock stays visible and a
@@ -250,7 +249,7 @@ dialog#sheet[open] { animation: sheet-in .45s var(--ease-out); }
 .sheet-bar {
   position: sticky; top: -3.5rem; margin: -3.5rem calc(-1 * var(--gutter)) 0; padding: .5rem var(--gutter);
   display: flex; align-items: center; gap: .5rem; min-height: 3.5rem; z-index: 2;
-  background: color-mix(in oklab, var(--bg) 86%, transparent); backdrop-filter: blur(8px);
+  background: color-mix(in oklab, var(--bg) 94%, transparent);
   font-family: var(--mono); font-size: .8125rem; color: var(--muted);
 }
 .sheet-bar .title { color: var(--fg); margin-right: auto; }
@@ -268,16 +267,8 @@ dialog#sheet .sheet .close { display: none; }
 .site-footer .dot:hover { color: var(--accent); }
 .site-footer .dot::after { content: '·'; font-size: 1.25rem; }
 
-/* --- View transitions ---------------------------------------------------- */
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: .3s; }
-::view-transition-old(sheet) { animation: .25s var(--ease-in-out) both vt-out; }
-::view-transition-new(sheet) { animation: .35s var(--ease-out) both vt-in; }
-@keyframes vt-in { from { opacity: 0; transform: translateY(10px); } }
-@keyframes vt-out { to { opacity: 0; transform: translateY(6px); } }
-
 /* --- Motion & print ------------------------------------------------------ */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
-  ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
 @media print { #flock, .still, .preview, .site-footer .dot { display: none; } .sheet { display: block; } }

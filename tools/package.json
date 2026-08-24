@@ -7,7 +7,8 @@
     "fonts": "node fonts.mjs",
     "images": "node images.mjs",
     "check": "node check.mjs",
-    "build": "npm run fonts && npm run images"
+    "build": "npm run fonts && npm run images",
+    "perf": "node perf.mjs && node perf.mjs --throttle 4"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.0",

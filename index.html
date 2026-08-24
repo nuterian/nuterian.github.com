@@ -7,8 +7,10 @@
 
   There are three files that matter: this one, css/style.css, and js/main.js.
   js/flock.js is the flock — a boids simulation drawn as small birds, each a
-  baseless triangle with a procedural wingbeat — and it
-  runs inside a Worker on an OffscreenCanvas so scrolling never waits on it.
+  baseless triangle with a procedural wingbeat. It runs inside a Worker on an
+  OffscreenCanvas, and it draws itself as instanced quads in WebGL (one draw
+  call a frame; Canvas 2D as fallback). The canvas is a plain absolute element,
+  so the compositor scrolls the birds with the text and scrolling costs nothing.
   The rules are separation, alignment, cohesion, and you.
 
   No build step. No framework. No analytics. No third-party requests.

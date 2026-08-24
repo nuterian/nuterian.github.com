@@ -160,8 +160,10 @@ export class Flock {
     this.fx = new Float32Array(n);
     this.fy = new Float32Array(n);
     this._next = new Int32Array(n);        // spatial-hash chains (reused every step)
-    this._tips = new Float32Array(n * 4);  // wingtip scratch for the renderer
-    this._buck = new Uint8Array(n);        // opacity bucket scratch for the renderer
+    this._tips = new Float32Array(n * 4);  // wingtip scratch for the painters
+    this._alp = new Float32Array(n);       // per-bird alpha scratch (0 = culled)
+    this._buck = new Uint8Array(n);        // opacity buckets (canvas 2d painter)
+    this._inst = new Float32Array(n * 10); // instance scratch (webgl painter)
     this.n = n;
     this._acc = 0;
     if (this.home) this._assign();
@@ -449,28 +451,20 @@ export class Flock {
   // --- Rendering ------------------------------------------------------------
 
 
-  // Two passes: geometry once into reused scratch, then one stroke per
-  // opacity bucket.
-  render(ctx, { color, alpha = 1, width = 1.25, dpr = 1, w, h, clear = true }) {
-    if (clear) ctx.clearRect(0, 0, w * dpr, h * dpr);
-    ctx.save();
-    ctx.scale(dpr, dpr);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = width;
-    ctx.strokeStyle = color;
+  // One geometry pass per frame into reused scratch; the painters (WebGL or
+  // Canvas 2D, below) only read it. Alpha 0 means culled.
+  geometry() {
     const { n, x, y, vx, vy, op, fp } = this;
-    const tips = this._tips, buck = this._buck;
+    const tips = this._tips, alp = this._alp;
     const near = this.pointer.on ? this.pointer : null;
-    const buckets = 6;
     for (let i = 0; i < n; i++) {
-      if (y[i] < -30 || y[i] > h + 30) { buck[i] = 255; continue; } // outside the canvas
+      if (y[i] < -30 || y[i] > this.h + 30) { alp[i] = 0; continue; } // outside the canvas
       let o = op[i];
       if (near) {
         const dx = x[i] - near.x, dy = y[i] - near.y, d2 = dx * dx + dy * dy;
-        if (d2 < 220 * 220) o = Math.min(0.999, o + (1 - Math.sqrt(d2) / 220) * 0.4);
+        if (d2 < 220 * 220) o = Math.min(1, o + (1 - Math.sqrt(d2) / 220) * 0.4);
       }
-      buck[i] = Math.min(buckets - 1, (o * buckets) | 0);
+      alp[i] = 0.35 + o * 0.6;
       const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
       let ux = sp > 0.01 ? vx[i] / sp : Math.cos(this.ph[i]);
       let uy = sp > 0.01 ? vy[i] / sp : Math.sin(this.ph[i]);
@@ -479,8 +473,153 @@ export class Flock {
       const [lx, ly, rx, ry] = wingTips(ux, uy, spd, phase);
       tips[i * 4] = lx; tips[i * 4 + 1] = ly; tips[i * 4 + 2] = rx; tips[i * 4 + 3] = ry;
     }
+  }
+}
+
+/*
+ * GLPainter — the preferred way to draw the flock: instanced quads on the GPU.
+ * One static unit quad, one small dynamic buffer (two wing segments per bird,
+ * five floats each), one draw call per frame. The vertex shader stretches the
+ * quad along its segment; MSAA does the smoothing. This is about the least
+ * work a GPU can be asked to do, which is the point: the CPU's only rendering
+ * job is writing ~8 KB of segment data.
+ */
+export class GLPainter {
+  static try(canvas) {
+    try {
+      // No MSAA: the fragment shader feathers the quad edges itself, which is
+      // cheaper than a multisampled framebuffer on weak GPUs.
+      const opts = { alpha: true, antialias: false, powerPreference: 'low-power', premultipliedAlpha: true };
+      const gl = canvas.getContext('webgl2', opts) || canvas.getContext('webgl', opts);
+      if (!gl) return null;
+      const ext = gl.vertexAttribDivisor ? null : gl.getExtension('ANGLE_instanced_arrays');
+      if (!gl.vertexAttribDivisor && !ext) return null;
+      const p = new GLPainter(canvas, gl, ext);
+      return p.ok ? p : null;
+    } catch { return null; }
+  }
+
+  constructor(canvas, gl, ext) {
+    this.canvas = canvas; this.gl = gl;
+    this.name = gl.vertexAttribDivisor ? 'webgl2' : 'webgl';
+    this.divisor = (loc, d) => (ext ? ext.vertexAttribDivisorANGLE(loc, d) : gl.vertexAttribDivisor(loc, d));
+    this.drawInst = (mode, first, count, n) => (ext ? ext.drawArraysInstancedANGLE(mode, first, count, n) : gl.drawArraysInstanced(mode, first, count, n));
+    canvas.addEventListener?.('webglcontextlost', e => e.preventDefault());
+    canvas.addEventListener?.('webglcontextrestored', () => this._setup());
+    this._setup();
+  }
+
+  _setup() {
+    const gl = this.gl;
+    const sh = (type, src) => { const h = gl.createShader(type); gl.shaderSource(h, src); gl.compileShader(h); return h; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, `
+      attribute vec2 q;        // corner of the unit quad: t along [0,1], s across [-1,1]
+      attribute vec4 seg;      // wing segment, CSS px: ax ay bx by
+      attribute float alp;
+      uniform vec2 res;
+      uniform mediump float hw;             // mediump to match the fragment stage exactly
+      varying float v; varying float dpx;   // signed distance from the centreline, px
+      void main() {
+        vec2 d = seg.zw - seg.xy;
+        float len = max(length(d), 1e-4);
+        vec2 u = d / len, n = vec2(-u.y, u.x);
+        float hwE = hw + 0.75;              // expand for the feather
+        vec2 p = seg.xy + u * (q.x * (len + 2.0 * hwE) - hwE) + n * (q.y * hwE);
+        vec2 c = p / res * 2.0 - 1.0;
+        gl_Position = vec4(c.x, -c.y, 0.0, 1.0);
+        v = alp; dpx = q.y * hwE;
+      }`));
+    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, `
+      precision mediump float;
+      uniform vec4 col; uniform float hw;
+      varying float v; varying float dpx;
+      void main() {
+        float edge = clamp((hw + 0.375 - abs(dpx)) / 0.75, 0.0, 1.0); // ~1px feather
+        float a = col.a * v * edge;
+        gl_FragColor = vec4(col.rgb * a, a);
+      }`));
+    gl.linkProgram(prog);
+    this.ok = gl.getProgramParameter(prog, gl.LINK_STATUS);
+    if (!this.ok) return; // GLPainter.try() will fall back to Canvas 2D
+    gl.useProgram(prog);
+    this.uRes = gl.getUniformLocation(prog, 'res');
+    this.uHw = gl.getUniformLocation(prog, 'hw');
+    this.uCol = gl.getUniformLocation(prog, 'col');
+    const aQ = gl.getAttribLocation(prog, 'q');
+    const aSeg = gl.getAttribLocation(prog, 'seg');
+    const aAlp = gl.getAttribLocation(prog, 'alp');
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 1, -1, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(aQ); gl.vertexAttribPointer(aQ, 2, gl.FLOAT, false, 0, 0);
+    this.instBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuf);
+    gl.enableVertexAttribArray(aSeg); gl.vertexAttribPointer(aSeg, 4, gl.FLOAT, false, 20, 0); this.divisor(aSeg, 1);
+    gl.enableVertexAttribArray(aAlp); gl.vertexAttribPointer(aAlp, 1, gl.FLOAT, false, 20, 16); this.divisor(aAlp, 1);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); // premultiplied
+    this.instCap = 0;
+  }
+
+  resize(w, h, dpr) {
+    this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
+    this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  draw(f, { rgb = [0.5, 0.5, 0.5], alpha = 1, width = 1.25, w, h }) {
+    const gl = this.gl;
+    if (gl.isContextLost()) return;
+    const { n, x, y } = f, tips = f._tips, alp = f._alp, inst = f._inst;
+    let m = 0;
+    for (let i = 0; i < n; i++) {
+      const a = alp[i];
+      if (a === 0) continue;
+      const xi = x[i], yi = y[i], o = i * 4, k = m * 10;
+      inst[k] = xi + tips[o]; inst[k + 1] = yi + tips[o + 1]; inst[k + 2] = xi; inst[k + 3] = yi; inst[k + 4] = a;
+      inst[k + 5] = xi; inst[k + 6] = yi; inst[k + 7] = xi + tips[o + 2]; inst[k + 8] = yi + tips[o + 3]; inst[k + 9] = a;
+      m++;
+    }
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    if (!m) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuf);
+    if (inst.length > this.instCap) { gl.bufferData(gl.ARRAY_BUFFER, inst.byteLength, gl.DYNAMIC_DRAW); this.instCap = inst.length; }
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, inst.subarray(0, m * 10));
+    gl.uniform2f(this.uRes, w, h);
+    gl.uniform1f(this.uHw, width / 2);
+    gl.uniform4f(this.uCol, rgb[0], rgb[1], rgb[2], alpha);
+    this.drawInst(gl.TRIANGLE_STRIP, 0, 4, m * 2);
+  }
+}
+
+/*
+ * Canvas2DPainter — the fallback when WebGL isn't available. Same geometry,
+ * batched into six opacity buckets so globalAlpha changes rarely.
+ */
+export class Canvas2DPainter {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
+    this.name = 'canvas2d';
+    this.dpr = 1;
+  }
+
+  resize(w, h, dpr) {
+    this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
+    this.dpr = dpr;
+  }
+
+  draw(f, { color = '#888', alpha = 1, width = 1.25, w, h }) {
+    const ctx = this.ctx, dpr = this.dpr;
+    ctx.clearRect(0, 0, w * dpr, h * dpr);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineWidth = width; ctx.strokeStyle = color;
+    const { n, x, y } = f, tips = f._tips, alp = f._alp, buck = f._buck;
+    const buckets = 6;
+    for (let i = 0; i < n; i++) buck[i] = alp[i] === 0 ? 255 : Math.min(buckets - 1, (alp[i] * buckets) | 0);
     for (let b = 0; b < buckets; b++) {
-      ctx.globalAlpha = alpha * (0.35 + ((b + 0.5) / buckets) * 0.6);
+      ctx.globalAlpha = alpha * ((b + 0.5) / buckets);
       ctx.beginPath();
       let any = false;
       for (let i = 0; i < n; i++) {
@@ -504,13 +643,21 @@ export class Flock {
 export class Runner {
   constructor(canvas, { raf = globalThis.requestAnimationFrame.bind(globalThis) } = {}) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
+    this.painter = GLPainter.try(canvas) || new Canvas2DPainter(canvas);
     this.raf = raf;
     this.flock = null;
-    this.style = { color: '#888', alpha: 1, width: 1.25 };
+    this.style = { color: '#888', rgb: [0.5, 0.5, 0.5], alpha: 1, width: 1.25 };
     this.dpr = 1; this.w = 1; this.h = 1; this.dirty = true;
     this.target = 120; this.frames = 0; this.accum = 0; this.last = 0;
     this.still = false; this.running = false; this.onstats = null;
+  }
+
+  _style(st) {
+    Object.assign(this.style, st);
+    if (st.color) { // '#rrggbb' → linear-ish floats for the GL path
+      const c = parseInt(st.color.slice(1), 16);
+      this.style.rgb = [(c >> 16 & 255) / 255, (c >> 8 & 255) / 255, (c & 255) / 255];
+    }
   }
 
   handle(m) {
@@ -518,7 +665,7 @@ export class Runner {
     switch (m.type) {
       case 'init': {
         this.dpr = m.dpr; this.w = m.w; this.h = m.h; this.target = m.count; this.still = !!m.still;
-        this.canvas.width = Math.round(m.w * m.dpr); this.canvas.height = Math.round(m.h * m.dpr);
+        this.painter.resize(m.w, m.h, m.dpr);
         this.flock = new Flock({ width: m.w, height: m.h, count: m.count, seed: m.seed, params: m.params });
         if (m.season) this.flock.season(m.season);
         if (m.still) this.settle();
@@ -527,10 +674,10 @@ export class Runner {
       }
       case 'resize':
         this.dpr = m.dpr; this.w = m.w; this.h = m.h;
-        this.canvas.width = Math.round(m.w * m.dpr); this.canvas.height = Math.round(m.h * m.dpr);
+        this.painter.resize(m.w, m.h, m.dpr);
         f?.resize(m.w, m.h); this.dirty = true; if (this.still) this.draw();
         break;
-      case 'style': Object.assign(this.style, m.style); this.dirty = true; if (this.still) this.draw(); break;
+      case 'style': this._style(m.style); this.dirty = true; if (this.still) this.draw(); break;
       case 'pointer': f?.setPointer(m.x, m.y, m.on); break;
       case 'attract': f?.attract(m.x, m.y, m.r, m.k, m.life, m.id); break;
       case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(); } break;
@@ -568,15 +715,17 @@ export class Runner {
     if (this.frames === 90) {
       const avg = this.accum / this.frames;
       const n = this.flock.n;
-      if (avg > 1 / 45 && n > 40) this.flock.setCount(Math.round(n * 0.8));
+      const floor = Math.max(48, Math.round(this.target * 0.6));
+      if (avg > 1 / 45 && n > floor) this.flock.setCount(Math.max(floor, Math.round(n * 0.8)));
       else if (avg < 1 / 70 && n < this.target) this.flock.setCount(Math.min(this.target, Math.round(n * 1.15)));
-      this.onstats?.({ fps: 1 / avg, n: this.flock.n });
+      this.onstats?.({ fps: 1 / avg, n: this.flock.n, renderer: this.painter.name });
       this.frames = 0; this.accum = 0;
     }
     this.raf(this.tick);
   };
 
   draw() {
-    this.flock.render(this.ctx, { ...this.style, dpr: this.dpr, w: this.w, h: this.h });
+    this.flock.geometry();
+    this.painter.draw(this.flock, { ...this.style, w: this.w, h: this.h });
   }
 }

@@ -9,9 +9,11 @@ six freelance sites from 2012–2014, a footer. Almost no words; the flock does 
 
 ## The flock
 
-A boids simulation (Reynolds, 1986) drawn as small birds on a fixed, full-viewport canvas
-behind the page. It runs in a **Web Worker on an OffscreenCanvas**; the main thread only
-sends small messages (pointer, wind, where home is). Scrolling never waits on it.
+A boids simulation (Reynolds, 1986) drawn as small birds on a canvas spanning the hero.
+It runs in a **Web Worker on an OffscreenCanvas** and renders through **WebGL instanced
+quads — one static unit quad, one ~8 KB dynamic buffer, one draw call per frame**, with
+edge anti-aliasing done in the fragment shader (no MSAA) and Canvas 2D as an automatic
+fallback. The main thread only sends small messages (pointer, where home is).
 
 - **Rules, in order of weight:** separation, alignment, cohesion, and *you* — the pointer
   scatters; nothing attracts.
@@ -34,8 +36,8 @@ sends small messages (pointer, wind, where home is). Scrolling never waits on it
   the others at full alignment/cohesion; as the fright fades it drifts back. A lingering
   pointer opens a clear ring in the mark; leave, and it heals.
 - **Count:** 200 on desktop, 70 on phones, then **adapted to measured frame time** (not the
-  user agent): it sheds boids when the average frame is slower than 45 fps and regrows
-  when faster than 70.
+  user agent): it sheds boids below 45 fps (never past 60 % of target, so the mark stays
+  legible) and regrows above 70.
 - **Timestep:** fixed 1/60 s with an accumulator, so 30, 60 and 120 Hz screens see the same
   behaviour; frames where no step ran are not redrawn (a 120 Hz display renders 60, not
   120). Neighbour search is a uniform grid keyed by perception radius; the hot loops
@@ -104,8 +106,9 @@ Each project's full-length 960 px screenshot (AVIF → WebP → the original PNG
   back to `#archive`.
 - **With script:** the same node is moved into a `<dialog>` and `showModal()`'d — focus
   trap, ESC, `inert` for free. URL gets `#slug` (deep-linkable); back/forward close and
-  reopen; ← → and swipe step between projects; focus returns to the opening row. View
-  Transitions wrap open/close where supported.
+  reopen; ← → and swipe step between projects; focus returns to the opening row. The
+  open animation is a plain CSS transform — no View Transitions, no backdrop blur: the
+  perf benchmark showed both costing ~50 ms frames on open, for almost nothing visible.
 - A vertical ruler on wide screens reads “960 px — the width of the web in 2013”.
 
 ## Accessibility
@@ -120,7 +123,10 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   (the network tab is this repo). `view-source` is commented and unminified.
 - Everything is behind feature detection: no Worker/OffscreenCanvas → main thread;
   no View Transitions → plain; no `<dialog>` → `:target`; no script → still.
-- **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; Lighthouse 100/100/100/100
+- **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; Lighthouse 100/100/100/100;
+  and `tools/perf.mjs` — a journey benchmark (settle, scroll, pointer scatter, archive
+  open/close) measuring main-thread frame times and long tasks, with budgets, at 1× and
+  4× CPU throttle;
   on desktop and mobile; first load < 100 KB gzip (currently ~71 KB); no console errors;
   reduced motion is actually still; no-JS still and `:target` work.
 
