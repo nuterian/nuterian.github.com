@@ -18,12 +18,24 @@ fallback. The main thread only sends small messages (pointer, where home is).
 
 - **Rules, in order of weight:** separation, alignment, cohesion, and *you* — the pointer
   scatters; nothing attracts.
-- **Home:** every boid is softly sprung to its own point in the 2013 brush *jm* (a 208-point
-  cloud sampled from the old logo — `js/mark.js`), sized ~half the viewport width and
-  optically centred (by the cloud's centroid) in the space the hero leaves above its text.
-  Near home the spring dominates and cruise speed drops to a few px/s, so the shape is
-  legible but never still; the whole mark sways ±5 px on a slow sine. On load they start
-  scattered and drift in over several seconds.
+- **Three states per bird.** HOME: softly sprung to its own point in the 2013 brush *jm*
+  (a 208-point cloud sampled from the old logo — `js/mark.js`), optically centred in the
+  whitespace above the hero text; near home, cruise drops to a few px/s so the mark is
+  legible but never still, and the whole mark sways ±5 px on a slow sine. STARTLE: a
+  moving pointer nearby makes each bird break on its *own* heading (away ± up to 60° of
+  temperament, mirrored if it points into the text) — no radial shockwave, and never
+  faster than that bird can fly. ROAM: after a startle — or now and then out of sheer
+  restlessness — a bird takes a wide elliptical lap around the open space, one to two
+  full rounds (random per bird), before drifting home. So a disrupted flock takes real
+  time to reassemble, staggered bird by bird, and the idle state is never 100 % of the
+  flock at once: a settled flock always has a few birds on a lap.
+- **The content is a wall.** The page's text blocks are sent in as rectangles; birds are
+  pushed off the faces and their crossing velocity is killed, so they skim and never
+  overlap the words. The roam ellipse is lifted above the text so laps don't grind
+  along it.
+- **Edges are off-stage, not walls.** The canvas bleeds 90 px past every viewport edge
+  and nothing pulls a bird back until it leaves the canvas entirely — so birds exit the
+  visible page, turn around out of sight, and re-enter naturally. No visible rebounds.
 - **The world is the canvas box, and the compositor scrolls it.** The canvas is a small
   `position: absolute` element (CSS owns the box, JS reads it); the birds live in
   canvas-local coordinates. Scrolling is handled by the browser's compositor exactly as for
@@ -36,6 +48,9 @@ fallback. The main thread only sends small messages (pointer, where home is).
   the others at full alignment/cohesion; as the fright fades it drifts back. A lingering
   pointer opens a clear ring in the mark; leave, and it heals.
 - **Count:** 200 on desktop, 70 on phones — fixed. Never adapted behind your back.
+- **Honest speed everywhere:** per-bird top speed 0.8–1.2 × 110 px/s; a startled bird may
+  briefly reach 1.35× its own limit, a roaming one 1.15×; steering (turn rate) is capped
+  by maxForce. Nothing teleports, on hover or otherwise.
 - **Timestep:** fixed 1/60 s with an accumulator, so 30, 60 and 120 Hz screens see the same
   behaviour; frames where no step ran are not redrawn (a 120 Hz display renders 60, not
   120). Neighbour search is a uniform grid keyed by perception radius; the hot loops
@@ -59,33 +74,26 @@ fallback. The main thread only sends small messages (pointer, where home is).
 
 ## What actually costs
 
-Measured, after three wrong guesses. A whole frame — simulate 200 birds, build geometry,
-draw, and `gl.finish()` — costs **0.041 ms**, about 0.25 % of a frame budget. Canvas 2D was
-0.045 ms. Compute was never the bottleneck, and neither was scrolling.
+Measured, after several wrong guesses. A whole frame — simulate 200 birds, build geometry,
+draw, `gl.finish()` — costs **0.041 ms**, ~0.25 % of a frame budget; Canvas 2D was 0.045 ms.
+Compute is never the cost. The costs that were real, in the order we found them:
 
-The cost is the **canvas as a compositor layer**: a big transparent canvas must be
-re-uploaded and blended over the page every frame. Same code, same 200 birds, only the
-canvas box differing:
+1. **Latency, not throughput**: a fixed canvas faking scroll offsets trailed the compositor
+   by a frame or two — that read as sluggish. Fixed by making the canvas absolute so the
+   compositor scrolls it (scrolling now does zero flock work).
+2. **View Transitions + backdrop blurs** on the archive sheet: ~50 ms frames on open.
+   Removed — visually near-identical.
+3. **Layer size in software compositing**: on machines without GPU compositing (and in
+   headless), a big transparent canvas is re-uploaded per frame and throttles the worker's
+   whole frame loop. On real GPUs a viewport-sized layer at DPR ≤ 1.5 composites at 60 fps
+   (measured headed: 60 fps steady, mid-scatter included). So: DPR capped at 1.5 (invisible
+   for 1.25 px shader-feathered strokes), and the canvas draws only when a sim step ran.
+4. **Adaptive density was the disease, not the cure**: it read a depressed frame rate and
+   thinned the mark. Gone — the count you ask for is the count you get.
 
-| canvas | layer | frame rate |
-|--------|-------|-----------|
-| 1560×780 (the birds' region) | 4.6 MB | **60 fps** |
-| 2400×1500 (the hero) | 13.7 MB | **31 fps** |
-
-So the canvas covers the flock and nothing more, and renders at DPR ≤ 1.5 (invisible on
-1.25 px shader-feathered strokes, 1.8× cheaper than 2×). **What we sacrificed for it:** the
-birds can no longer fly anywhere on the page, which cost three flourishes — boids tracing a
-link's underline, perching along an open sheet's edge, and steering around the text. Each
-required the canvas to span the viewport, and none was worth half the frame rate.
-
-Two related lessons, both learned the hard way:
-
-- **Measure the right number.** Main-thread rAF deltas are vsync-pinned at 16.7 ms and
-  showed *no difference* between the current build and no canvas at all. The honest metric
-  is the flock's own achieved frame rate (`tools/fps.mjs`, `window.flock.fps`).
-- **Adaptive density was the disease, not the cure.** It read the depressed frame rate and
-  shed birds (200 → 120), thinning the mark without fixing anything. It is gone: the count
-  you ask for is the count you get.
+Instruments in `tools/`: `fps.mjs` (achieved flock frame rate — the number that matters;
+main-thread rAF deltas are vsync-pinned and cannot see any of this), `bench.html`
+(per-operation microbench with GPU sync), `perf.mjs` (journey long-task benchmark).
 
 ## Colour
 

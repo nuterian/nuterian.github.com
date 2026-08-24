@@ -76,6 +76,16 @@ function measureWorld() {
   world = { w: Math.max(1, Math.round(r.width)), h: Math.max(1, Math.round(r.height)) };
   return world;
 }
+// The content is a wall the birds cannot cross. Both rects are page-anchored,
+// so canvas-local offsets are stable until the next resize.
+function sendObstacles() {
+  const c = canvas.getBoundingClientRect();
+  const rects = $$('[data-obstacle]').map(el => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height };
+  }).filter(r => r.y < world.h && r.y + r.h > 0);
+  post({ type: 'obstacles', rects });
+}
 // 1.5x is plenty for 1.25 px strokes the shader already feathers, and it is
 // 1.8x less to composite than 2x. Nobody has ever spotted the difference.
 const dpr = () => (params.has('fdpr') ? +params.get('fdpr') : Math.min(1.5, devicePixelRatio || 1));
@@ -134,7 +144,7 @@ addEventListener('resize', () => {
   resizeRaf = requestAnimationFrame(() => {
     const { w, h } = measureWorld();
     post({ type: 'resize', dpr: dpr(), w, h });
-    sendHome(false);
+    sendHome(false); sendObstacles();
   });
 }, { passive: true });
 let heroSeen = true;
@@ -200,14 +210,19 @@ let markCx = 0.5, markCy = 0.5;
   markCx = sx / (MARK.length / 2) / 100; markCy = sy / (MARK.length / 2) / 100; }
 function homeBox() {
   const { w, h } = world;
-  const bw = Math.min(w * 0.66, h * 0.66 * MARK_ASPECT);
+  const c = canvas.getBoundingClientRect();
+  const text = $('.hero-text').getBoundingClientRect();
+  const textTop = text.top - c.top;             // canvas-local
+  const bw = Math.min((w - 180) * 0.5, 660);
   const bh = bw / MARK_ASPECT;
-  return { x: w / 2 - bw * markCx, y: h / 2 - bh * markCy, w: bw, h: bh };
+  const cy = Math.max(bh / 2 + 60, Math.min(textTop * 0.52, h * 0.5));
+  return { x: w / 2 - bw * markCx, y: cy - bh * markCy, w: bw, h: bh };
 }
 function sendHome(full = true) {
   post(full ? { type: 'home', points: MARK, aspect: MARK_ASPECT, box: homeBox() } : { type: 'home-box', box: homeBox() });
 }
 sendHome(true);
+sendObstacles();
 
 /* ---------------------------------------------------------------------------
  * 4. The archive

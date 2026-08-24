@@ -3,13 +3,14 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { Flock, STEP, MARK, MARK_ASPECT, wingTips } from '../js/flock.js';
 
-// The canvas box, matching style.css (#flock: min(92vw,1040) x min(52vh,660)).
-const W = 1040, H = 520;
+// The canvas box, matching style.css (#flock: viewport + 90px bleed).
+const W = 1620, H = 1080;
 const f = new Flock({ width: W, height: H, count: 200, seed: 2013 });
-const bw = Math.min(W * 0.66, H * 0.66 * MARK_ASPECT), bh = bw / MARK_ASPECT; // == main.js homeBox()
+const bw = Math.min((W - 180) * 0.5, 660), bh = bw / MARK_ASPECT; // == main.js homeBox()
 let sx = 0, sy = 0; for (let i = 0; i < MARK.length; i += 2) { sx += MARK[i]; sy += MARK[i + 1]; }
 const cx = sx / (MARK.length / 2) / 100, cy = sy / (MARK.length / 2) / 100;
-f.setHome(MARK, MARK_ASPECT, { x: W / 2 - bw * cx, y: H / 2 - bh * cy, w: bw, h: bh });
+f.setHome(MARK, MARK_ASPECT, { x: W / 2 - bw * cx, y: Math.max(bh / 2 + 60, 560 * 0.52) - bh * cy, w: bw, h: bh });
+f.obstacles = [{ x: 100, y: 690, w: 560, h: 260 }]; // roughly the hero text
 for (let i = 0; i < 900; i++) f._step(STEP);
 
 let lines = '';

@@ -107,18 +107,16 @@ img, svg { display: block; max-width: 100%; height: auto; }
 .skip:focus-visible { top: 1rem; }
 
 /* --- The flock's canvas, and the still for when there's no script -------- */
-/* The canvas covers only the region the birds occupy — the mark plus room to
- * scatter — not the viewport. A full-viewport canvas is a ~35 MB layer the
- * compositor re-uploads every frame; this is ~6 MB, and the worker's frame
- * loop is driven by that compositing. It is absolute, not fixed, so the
- * compositor also scrolls it with the text for free. CSS owns this box so
- * the no-script still can share it exactly. */
+/* The canvas spans the hero and bleeds 90px past every edge, so a bird can
+ * fly out of the visible page, turn around off-stage, and come back — no
+ * visible rebounds. It is absolute, not fixed: the compositor scrolls it
+ * with the text for free. It renders at DPR ≤ 1.5 to keep the layer cheap.
+ * CSS owns this box so the no-script still shares it exactly. */
 #flock, .still {
   position: absolute;
-  top: clamp(1rem, 5vh, 5rem);
-  left: 0; right: 0; margin-inline: auto;
-  width: min(92vw, 1040px);
-  height: min(52vh, 660px);
+  top: -90px; left: -90px;
+  width: calc(100vw + 180px);
+  height: calc(100svh + 180px);
   z-index: 0; pointer-events: none;
 }
 .still { color: var(--flock); }
