@@ -13,14 +13,17 @@
  *   cohesion    — stay with them
  *   you         — the pointer repels; whatever you hover attracts
  *
- * The flock has a home: the 2013 jm mark, top-centre of the viewport. Every
- * boid is softly sprung to its own point in it, so the shape is always legible
- * and always breathing. Disturb them and they scatter; leave them and they
- * drift back. Modes: 'home' (default), 'snow' (December only — the first
- * commit on this site after the 2013 reset was "Add snow").
+ * The flock has a home: the 2013 jm mark, centred in the hero. Every boid is
+ * softly sprung to its own point in it, so the shape is always legible and
+ * always breathing. Disturb them and they scatter; leave them and they drift
+ * back. Modes: 'home' (default), 'snow' (December only — the first commit on
+ * this site after the 2013 reset was "Add snow").
  *
- * Units: CSS pixels and seconds. The simulation advances with a fixed
- * timestep so it behaves identically at 30, 60 or 120 Hz.
+ * Units: CSS pixels and seconds, in DOCUMENT coordinates — the birds are
+ * anchored to the page, not the screen. The renderer subtracts the scroll
+ * offset (`view`), so scrolling moves the viewport past the flock, exactly
+ * like the text. The simulation advances with a fixed timestep so it behaves
+ * identically at 30, 60 or 120 Hz, and its hot loops allocate nothing.
  */
 
 import { MARK, MARK_ASPECT } from './mark.js';
@@ -102,7 +105,7 @@ export function textPoints(ctx2d, text, font, pitch = 6) {
  */
 export function wingTips(ux, uy, sp, phase) {
   const len = 3.6 + Math.min(sp * 0.045, 4.2);
-  const amp = Math.min(1, 0.25 + sp / 110);
+  const amp = Math.min(1, 0.55 + sp / 150);   // clearly beating even at rest
   // Skewed waveform: the downstroke is quicker than the upstroke.
   const flap = Math.sin(phase + 0.45 * Math.sin(phase));
   const sweep = 2.3 - flap * 0.42 * amp;                // 108°–156° off the heading
@@ -151,10 +154,14 @@ export class Flock {
     this.op = grow(this.op, () => 0.55 + this.random() * 0.45);  // personal opacity
     this.fp = grow(this.fp, () => this.random() * Math.PI * 2);   // wingbeat phase
     this.scare = grow(this.scare, () => 0);                        // seconds of fright left
+    this.vmax = grow(this.vmax, () => (0.8 + 0.4 * this.random()) * this.p.maxSpeed); // birds differ
     const role = new Uint8Array(n); if (this.role) role.set(this.role.subarray(0, Math.min(old, n)));
     this.role = role; // 0 free, 1 perching, 2 tracing
     this.fx = new Float32Array(n);
     this.fy = new Float32Array(n);
+    this._next = new Int32Array(n);        // spatial-hash chains (reused every step)
+    this._tips = new Float32Array(n * 4);  // wingtip scratch for the renderer
+    this._buck = new Uint8Array(n);        // opacity bucket scratch for the renderer
     this.n = n;
     this._acc = 0;
     if (this.home) this._assign();
@@ -226,7 +233,7 @@ export class Flock {
     for (let k = 0; k < Math.min(count, near.length); k++) {
       const [d, i] = near[k];
       this.role[i] = 2;
-      this.traces.push({ i, x0, y0, x1, y1, t0: this.time + d / 700 + k * 0.06, dur });
+      this.traces.push({ i, x0, y0, x1, y1, t0: this.time + d / 300 + k * 0.06, dur });
     }
   }
 
@@ -262,11 +269,13 @@ export class Flock {
     const mode = this.mode;
     fx.fill(0); fy.fill(0);
 
-    // Spatial hash: one bucket per perception radius.
+    // Spatial hash: one bucket per perception radius. Scratch arrays are
+    // reused across steps — the hot path allocates nothing.
     const cell = p.perception;
     const cols = Math.max(1, Math.ceil(this.w / cell)), rows = Math.max(1, Math.ceil(this.h / cell));
-    const heads = new Int32Array(cols * rows).fill(-1);
-    const next = new Int32Array(n);
+    if (!this._heads || this._heads.length !== cols * rows) this._heads = new Int32Array(cols * rows);
+    const heads = this._heads.fill(-1);
+    const next = this._next;
     for (let i = 0; i < n; i++) {
       const cx = Math.min(cols - 1, Math.max(0, (x[i] / cell) | 0));
       const cy = Math.min(rows - 1, Math.max(0, (y[i] / cell) | 0));
@@ -277,12 +286,8 @@ export class Flock {
     const per2 = p.perception * p.perception, sep2 = p.separation * p.separation;
     const homing = mode === 'home' && !!this.tgt;
     const maxF = p.maxForce;
-    // The top edge is permeable when home has risen above the viewport (scroll),
-    // so the flock can follow it out instead of banding along the top.
-    const hb = this.home?.box;
     // The whole mark sways very slowly, so even at rest it is never a still image.
     const swayX = Math.sin(t * 0.31) * 5, swayY = Math.cos(t * 0.23) * 4;
-    const topLimit = hb ? Math.max(-this.h, Math.min(0, hb.y - 40)) : 0;
 
     for (let i = 0; i < n; i++) {
       const xi = x[i], yi = y[i];
@@ -310,7 +315,7 @@ export class Flock {
       const jostle = homing ? p.homeJostle + (1 - p.homeJostle) * fear : 1; // at home the rules apply softly; scared, fully
       if (cnt) {
         ax /= cnt; ay /= cnt; cx /= cnt; cy /= cnt;
-        const al = Math.hypot(ax, ay) || 1;
+        const al = Math.sqrt(ax * ax + ay * ay) || 1;
         const wA = mode === 'snow' ? 0 : p.wAlignment * jostle, wC = mode === 'snow' ? 0 : p.wCohesion * jostle;
         Fx += (ax / al * p.cruise - vx[i]) * wA + cx * wC;
         Fy += (ay / al * p.cruise - vy[i]) * wA + cy * wC;
@@ -322,7 +327,7 @@ export class Flock {
       let homeD = 1e9;
       if (homing) {
         const tx = this.tgt[i * 2] + swayX, ty = this.tgt[i * 2 + 1] + swayY;
-        const dx = tx - xi, dy = ty - yi; homeD = Math.hypot(dx, dy) || 1e-3;
+        const dx = tx - xi, dy = ty - yi; homeD = Math.sqrt(dx * dx + dy * dy) || 1e-3;
         const pull = Math.min(homeD * p.homePull, p.homeSpeed) * (1 - fear * 0.92);
         const g = 2.2 * (1 - fear * 0.8);
         Fx += (dx / homeD * pull - vx[i]) * g; Fy += (dy / homeD * pull - vy[i]) * g;
@@ -335,19 +340,22 @@ export class Flock {
 
       // Cruise: relax speed toward cruise — slower the closer to home, so
       // boids at rest only drift a few pixels, never stop dead.
-      const sp = Math.hypot(vx[i], vy[i]) || 1e-3;
+      const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]) || 1e-3;
       const want = mode === 'snow' ? p.cruise * 0.5 : homing ? p.cruise * Math.min(1, 0.18 + homeD / 90 + fear) : p.cruise;
       const k = (want - sp) * 0.8;
       Fx += vx[i] / sp * k; Fy += vy[i] / sp * k;
 
       // You.
       if (this.pointer.on) {
-        const dx = xi - this.pointer.x, dy = yi - this.pointer.y, d = Math.hypot(dx, dy);
-        if (d < p.pointerRadius && d > 0.01) {
+        {
+        const dx = xi - this.pointer.x, dy = yi - this.pointer.y, d2p = dx * dx + dy * dy;
+        if (d2p < p.pointerRadius * p.pointerRadius && d2p > 1e-4) {
+          const d = Math.sqrt(d2p);
           const s = 1 - d / p.pointerRadius;
           const push = p.pointerPush * s * s * (1 + Math.min(this.pointer.speed, 40) * 0.03);
           Fx += dx / d * push; Fy += dy / d * push;
           this.scare[i] = Math.max(this.scare[i], 1.6 + s * 2.0);
+        }
         }
       }
       // Things you hover.
@@ -370,10 +378,13 @@ export class Flock {
           if (mn === lx) Fx -= push; else if (mn === rx) Fx += push; else if (mn === ty) Fy -= push; else Fy += push;
         }
       }
-      // Edges: turn back softly, never bounce.
+      // Edges: turn back softly, never bounce. (Birds on a job — perching,
+      // tracing — are steered directly and may leave the world box.)
       const e = p.edge;
-      if (xi < e) Fx += (e - xi) / e * 160; else if (xi > this.w - e) Fx -= (xi - (this.w - e)) / e * 160;
-      if (yi < topLimit + e) Fy += (topLimit + e - yi) / e * 160; else if (yi > this.h - e) Fy -= (yi - (this.h - e)) / e * 160;
+      if (!this.role[i]) {
+        if (xi < e) Fx += (e - xi) / e * 160; else if (xi > this.w - e) Fx -= (xi - (this.w - e)) / e * 160;
+        if (yi < e) Fy += (e - yi) / e * 160; else if (yi > this.h - e) Fy -= (yi - (this.h - e)) / e * 160;
+      }
 
       // Weather.
       Fx += this.wind.x; Fy += this.wind.y;
@@ -385,15 +396,15 @@ export class Flock {
         const s = this.perchSlots.find(q => q.i === i) || { t: 0.5 };
         const tx = this.perches.x0 + (this.perches.x1 - this.perches.x0) * s.t;
         const ty = this.perches.y0 + (this.perches.y1 - this.perches.y0) * s.t;
-        const dx = tx - xi, dy = ty - yi, d = Math.hypot(dx, dy) || 1e-3;
-        const speed = Math.min(d * 2.5, 260);
+        const dx = tx - xi, dy = ty - yi, d = Math.sqrt(dx * dx + dy * dy) || 1e-3;
+        const speed = Math.min(d * 2.5, 200);
         Fx = (dx / d * speed - vx[i]) * 5; Fy = (dy / d * speed - vy[i]) * 5;
         if (d < 1.5) { Fx -= vx[i] * 14; Fy -= vy[i] * 14 - Math.sin(t * 3 + ph) * 2; }
       }
 
       // Clamp steering.
-      const fm = Math.hypot(Fx, Fy);
-      const cap = this.role[i] ? 2600 : maxF * 4;
+      const fm = Math.sqrt(Fx * Fx + Fy * Fy);
+      const cap = this.role[i] ? 1400 : maxF * 4;
       if (fm > cap) { Fx *= cap / fm; Fy *= cap / fm; }
       fx[i] = Fx; fy[i] = Fy;
     }
@@ -406,25 +417,27 @@ export class Flock {
       // Before the clock starts, fly to the start; then ease along; then overshoot off the end.
       const e = u < 0 ? 0 : u < 1 ? u * u * (3 - 2 * u) : 1 + (u - 1) * 1.5;
       const tx = tr.x0 + (tr.x1 - tr.x0) * e, ty = tr.y0 + (tr.y1 - tr.y0) * e + Math.sin(u * 9 + tr.i) * 1.2;
-      const i = tr.i, dx = tx - x[i], dy = ty - y[i], d = Math.hypot(dx, dy) || 1e-3;
-      const speed = Math.min(d * 8, 900);
-      fx[i] = (dx / d * speed - vx[i]) * 10; fy[i] = (dy / d * speed - vy[i]) * 10;
+      const i = tr.i, dx = tx - x[i], dy = ty - y[i], d = Math.sqrt(dx * dx + dy * dy) || 1e-3;
+      const speed = Math.min(d * 6, 380);
+      fx[i] = (dx / d * speed - vx[i]) * 6; fy[i] = (dy / d * speed - vy[i]) * 6;
     }
 
-    // Integrate.
+    // Integrate. Every bird has its own top speed (vmax); fear buys a short
+    // sprint, a job (tracing) a slightly longer one — but nobody teleports.
     const tempo = this.tempo;
-    const vmax = this.pointer.on ? p.maxSpeed * 2.2 : Math.max(p.maxSpeed, p.homeSpeed);
     for (let i = 0; i < n; i++) {
       vx[i] += fx[i] * dt; vy[i] += fy[i] * dt;
-      let sp = Math.hypot(vx[i], vy[i]);
-      const cap = this.role[i] === 2 ? 900 : this.role[i] === 1 ? 320 : vmax;
+      let sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+      const cap = this.vmax[i] * (this.role[i] === 2 ? 1.6 : 1 + Math.min(0.5, this.scare[i] * 0.25));
       if (sp > cap) { vx[i] *= cap / sp; vy[i] *= cap / sp; sp = cap; }
       const tp = this.role[i] ? 1 : tempo; // birds with a job aren't slowed by the mood
       x[i] += vx[i] * dt * tp; y[i] += vy[i] * dt * tp;
       // Snow wraps; everything else is kept inside by the edge force.
       if (mode === 'snow' && y[i] > this.h + 8) { y[i] = -8; x[i] = this.random() * this.w; }
-      if (x[i] < -20) x[i] = -20; else if (x[i] > this.w + 20) x[i] = this.w + 20;
-      if (y[i] < topLimit - 20) y[i] = topLimit - 20; else if (y[i] > this.h + 20 && mode !== 'snow') y[i] = this.h + 20;
+      if (!this.role[i]) {
+        if (x[i] < -20) x[i] = -20; else if (x[i] > this.w + 20) x[i] = this.w + 20;
+        if (y[i] < -20) y[i] = -20; else if (y[i] > this.h + 20 && mode !== 'snow') y[i] = this.h + 20;
+      }
     }
 
     // Housekeeping.
@@ -436,40 +449,50 @@ export class Flock {
   // --- Rendering ------------------------------------------------------------
 
 
-  // Strokes stretch with speed and shrink to dots at rest, so the flock's mood
-  // is legible. Width matches the stem of the body type so text and flock read
-  // as one instrument.
-  render(ctx, { color, alpha = 1, width = 1.25, dpr = 1, w, h, clear = true }) {
+  // Two passes: geometry once into reused scratch, then one stroke per
+  // opacity bucket. `view` is the scroll offset — the world is the page.
+  render(ctx, { color, alpha = 1, width = 1.25, dpr = 1, w, h, view = 0, clear = true }) {
     if (clear) ctx.clearRect(0, 0, w * dpr, h * dpr);
     ctx.save();
     ctx.scale(dpr, dpr);
+    ctx.translate(0, -view);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = width;
     ctx.strokeStyle = color;
     const { n, x, y, vx, vy, op, fp } = this;
+    const tips = this._tips, buck = this._buck;
     const near = this.pointer.on ? this.pointer : null;
-    // Batch by opacity bucket so we set globalAlpha rarely.
     const buckets = 6;
-    for (let b = 0; b < buckets; b++) {
-      const lo = b / buckets, hi = (b + 1) / buckets;
-      ctx.globalAlpha = alpha * (0.35 + ((lo + hi) / 2) * 0.6);
-      ctx.beginPath();
-      for (let i = 0; i < n; i++) {
-        let o = op[i];
-        if (near) { const d = Math.hypot(x[i] - near.x, y[i] - near.y); if (d < 220) o = Math.min(0.999, o + (1 - d / 220) * 0.4); }
-        if (o < lo || o >= hi) continue;
-        const sp = Math.hypot(vx[i], vy[i]);
-        let ux = sp > 0.01 ? vx[i] / sp : Math.cos(this.ph[i]);
-        let uy = sp > 0.01 ? vy[i] / sp : Math.sin(this.ph[i]);
-        let spd = sp, phase = fp[i];
-        if (this.role[i] === 1 && sp < 6) { ux = 0; uy = -1; spd = 0; phase = this.ph[i]; } // perched: facing up, wings folded
-        const [lx, ly, rx, ry] = wingTips(ux, uy, spd, phase);
-        ctx.moveTo(x[i] + lx, y[i] + ly);
-        ctx.lineTo(x[i], y[i]);
-        ctx.lineTo(x[i] + rx, y[i] + ry);
+    for (let i = 0; i < n; i++) {
+      const yi = y[i] - view;
+      if (yi < -30 || yi > h + 30) { buck[i] = 255; continue; } // scrolled away
+      let o = op[i];
+      if (near) {
+        const dx = x[i] - near.x, dy = y[i] - near.y, d2 = dx * dx + dy * dy;
+        if (d2 < 220 * 220) o = Math.min(0.999, o + (1 - Math.sqrt(d2) / 220) * 0.4);
       }
-      ctx.stroke();
+      buck[i] = Math.min(buckets - 1, (o * buckets) | 0);
+      const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+      let ux = sp > 0.01 ? vx[i] / sp : Math.cos(this.ph[i]);
+      let uy = sp > 0.01 ? vy[i] / sp : Math.sin(this.ph[i]);
+      let spd = sp, phase = fp[i];
+      if (this.role[i] === 1 && sp < 6) { ux = 0; uy = -1; spd = 0; phase = this.ph[i]; } // perched: facing up, wings folded
+      const [lx, ly, rx, ry] = wingTips(ux, uy, spd, phase);
+      tips[i * 4] = lx; tips[i * 4 + 1] = ly; tips[i * 4 + 2] = rx; tips[i * 4 + 3] = ry;
+    }
+    for (let b = 0; b < buckets; b++) {
+      ctx.globalAlpha = alpha * (0.35 + ((b + 0.5) / buckets) * 0.6);
+      ctx.beginPath();
+      let any = false;
+      for (let i = 0; i < n; i++) {
+        if (buck[i] !== b) continue;
+        any = true;
+        ctx.moveTo(x[i] + tips[i * 4], y[i] + tips[i * 4 + 1]);
+        ctx.lineTo(x[i], y[i]);
+        ctx.lineTo(x[i] + tips[i * 4 + 2], y[i] + tips[i * 4 + 3]);
+      }
+      if (any) ctx.stroke();
     }
     ctx.restore();
   }
@@ -487,7 +510,7 @@ export class Runner {
     this.raf = raf;
     this.flock = null;
     this.style = { color: '#888', alpha: 1, width: 1.25 };
-    this.dpr = 1; this.w = 1; this.h = 1;
+    this.dpr = 1; this.w = 1; this.h = 1; this.view = 0;
     this.target = 120; this.frames = 0; this.accum = 0; this.last = 0;
     this.still = false; this.running = false; this.onstats = null;
   }
@@ -513,6 +536,7 @@ export class Runner {
       case 'pointer': f?.setPointer(m.x, m.y, m.on); break;
       case 'attract': f?.attract(m.x, m.y, m.r, m.k, m.life, m.id); break;
       case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(); } break;
+      case 'view': this.view = m.y; if (this.still) this.draw(); break;
       case 'wind': if (f) { f.wind.x += m.x; f.wind.y += m.y; } break;
       case 'gravity': if (f) { f.gravity.x = m.x; f.gravity.y = m.y; } break;
       case 'home': f?.setHome(m.points, m.aspect, m.box); if (this.still) this.settle(); break;
@@ -556,6 +580,6 @@ export class Runner {
   };
 
   draw() {
-    this.flock.render(this.ctx, { ...this.style, dpr: this.dpr, w: this.w, h: this.h });
+    this.flock.render(this.ctx, { ...this.style, dpr: this.dpr, w: this.w, h: this.h, view: this.view });
   }
 }

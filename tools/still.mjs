@@ -6,8 +6,10 @@ import { Flock, STEP, MARK, MARK_ASPECT, wingTips } from '../js/flock.js';
 const W = 1440, H = 900;
 const f = new Flock({ width: W, height: H, count: 200, seed: 2013 });
 f.obstacles = [{ x: 80, y: 600, w: 520, h: 220 }]; // roughly where the hero text sits
-const bw = 440, bh = bw / MARK_ASPECT;               // same placement as main.js homeBox()
-f.setHome(MARK, MARK_ASPECT, { x: W / 2 - bw / 2, y: Math.max(bh / 2 + 28, H * 0.24) - bh / 2, w: bw, h: bh });
+const bw = 640, bh = bw / MARK_ASPECT;               // same placement as main.js homeBox()
+let sx = 0, sy = 0; for (let i = 0; i < MARK.length; i += 2) { sx += MARK[i]; sy += MARK[i + 1]; }
+const cx = sx / (MARK.length / 2) / 100, cy = sy / (MARK.length / 2) / 100;
+f.setHome(MARK, MARK_ASPECT, { x: W / 2 - bw * cx, y: 575 * 0.48 - bh * cy, w: bw, h: bh });
 for (let i = 0; i < 900; i++) f._step(STEP);
 
 let lines = '';

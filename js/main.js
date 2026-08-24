@@ -68,7 +68,12 @@ darkMQ.addEventListener('change', pushStyle);
  * 2. The flock
  * ------------------------------------------------------------------------- */
 let canvas = $('#flock');
-const dpr = () => Math.min(2, devicePixelRatio || 1);
+const dpr = () => {
+  const d = Math.min(2, devicePixelRatio || 1);
+  // Cap the backing store around 6.5 MPx: a 4.5K viewport renders at ~1.5x
+  // instead of 2x — invisible for 1.25 px strokes, half the fill cost.
+  return Math.max(1, Math.min(d, Math.sqrt(6.5e6 / (innerWidth * innerHeight))));
+};
 const vw = () => innerWidth, vh = () => innerHeight;
 const coarse = matchMedia('(pointer: coarse)').matches;
 const TARGET = params.has('n') ? +params.get('n') : (coarse || innerWidth < 700 ? 70 : 200);
@@ -130,23 +135,28 @@ document.addEventListener('visibilitychange', () => post({ type: 'visible', valu
 // The flock respects the text: rectangles it steers around, in viewport space.
 const obstacles = $$('[data-obstacle]');
 function sendObstacles() {
-  if (current) { // a sheet is open: it is the only obstacle
+  if (current) { // a sheet is open (fixed position): it is the only obstacle
     const r = sheet.getBoundingClientRect();
-    return post({ type: 'obstacles', rects: [{ x: r.left, y: r.top, w: r.width, h: r.height + 100 }] });
+    return post({ type: 'obstacles', rects: [{ x: r.left, y: r.top + scrollY, w: r.width, h: r.height + 100 }] });
   }
   const wide = vw() >= 700;
   const rects = obstacles.filter(el => wide || !el.dataset.obstacleWide)
-    .map(el => el.getBoundingClientRect()).filter(r => r.bottom > 0 && r.top < vh())
-    .map(r => ({ x: r.left, y: r.top, w: r.width, h: r.height }));
+    .map(el => el.getBoundingClientRect())
+    .map(r => ({ x: r.left, y: r.top + scrollY, w: r.width, h: r.height }));
   post({ type: 'obstacles', rects });
 }
 sendObstacles();
 
-// Pointer: mouse/pen repel. Touch is handled as taps below (dragging scrolls).
+// Pointer: mouse/pen repel, in document coordinates, at most once per frame.
+let pointerRaf = 0, px = 0, py = 0;
 addEventListener('pointermove', e => {
   if (e.pointerType === 'touch') return;
-  post({ type: 'pointer', x: e.clientX, y: e.clientY, on: true });
-  if (preview.classList.contains('on')) movePreview(e.clientX, e.clientY);
+  px = e.clientX; py = e.clientY;
+  if (!pointerRaf) pointerRaf = requestAnimationFrame(() => {
+    pointerRaf = 0;
+    post({ type: 'pointer', x: px, y: py + scrollY, on: true });
+    if (preview.classList.contains('on')) movePreview(px, py);
+  });
 }, { passive: true });
 addEventListener('pointerleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
 document.addEventListener('mouseleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
@@ -158,7 +168,7 @@ addEventListener('pointerup', e => {
   if (e.pointerType !== 'touch' || !tapStart) return;
   const moved = Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y);
   if (moved < 12 && performance.now() - tapStart.t < 400) {
-    post({ type: 'attract', id: 'tap', x: e.clientX, y: e.clientY, r: 110, k: 1.6, life: 1.3 });
+    post({ type: 'attract', id: 'tap', x: e.clientX, y: e.clientY + scrollY, r: 110, k: 1.6, life: 1.3 });
     requestTilt();
   }
   tapStart = null;
@@ -180,15 +190,12 @@ function onTilt(e) {
   post({ type: 'gravity', x: gx, y: gy });
 }
 
-// Scroll: wind. Content goes up, the flock is blown up with it, then settles.
-let lastY = scrollY;
+// Scroll: the birds are anchored to the page; only the viewport moves.
 let scrollRaf = 0;
 addEventListener('scroll', () => {
-  const dy = scrollY - lastY; lastY = scrollY;
-  post({ type: 'wind', x: 0, y: -Math.max(-60, Math.min(60, dy)) * 4 });
-  cancelAnimationFrame(scrollRaf);
-  scrollRaf = requestAnimationFrame(() => { sendObstacles(); sendHome(false); });
+  if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; post({ type: 'view', y: scrollY }); });
 }, { passive: true });
+post({ type: 'view', y: scrollY });
 
 // Hover a link and the nearest few boids break off to trace its underline.
 if (finePointer.matches) {
@@ -197,18 +204,22 @@ if (finePointer.matches) {
     if (!a || a.closest('dialog')) return;
     const range = document.createRange(); range.selectNodeContents(a);
     const t = range.getBoundingClientRect();
-    post({ type: 'trace', x0: t.left, y0: t.bottom + 1, x1: t.right, y1: t.bottom + 1, count: 4, dur: 0.8 });
+    post({ type: 'trace', x0: t.left, y0: t.bottom + 1 + scrollY, x1: t.right, y1: t.bottom + 1 + scrollY, count: 4, dur: 0.8 });
   });
 }
 
-// Home: the 2013 jm mark, top-centre of the viewport. It rises with a 0.6
-// parallax as you scroll, so it never sits on top of the archive.
+// Home: the 2013 jm mark, anchored to the page, optically centred in the
+// space the hero leaves above its text.
+let markCx = 0.5, markCy = 0.5; // centroid of the point cloud, in box fractions
+{ let sx = 0, sy = 0; for (let i = 0; i < MARK.length; i += 2) { sx += MARK[i]; sy += MARK[i + 1]; }
+  markCx = sx / (MARK.length / 2) / 100; markCy = sy / (MARK.length / 2) / 100; }
 function homeBox() {
-  const w = vw(), h = vh();
-  const bw = w < 700 ? w * 0.66 : Math.min(w * 0.34, 440);
+  const w = vw();
+  const bw = w < 700 ? w * 0.8 : Math.min(w * 0.48, 640);
   const bh = bw / MARK_ASPECT;
-  const cy = Math.max(bh / 2 + 28, h * (w < 700 ? 0.2 : 0.24));
-  return { x: w / 2 - bw / 2, y: cy - bh / 2 - scrollY * 0.6, w: bw, h: bh };
+  const textTop = $('.hero-text').getBoundingClientRect().top + scrollY;
+  const cy = Math.max(bh / 2 + 32, textTop * 0.48);
+  return { x: w / 2 - bw * markCx, y: cy - bh * markCy, w: bw, h: bh };
 }
 function sendHome(full = true) {
   post(full ? { type: 'home', points: MARK, aspect: MARK_ASPECT, box: homeBox() } : { type: 'home-box', box: homeBox() });

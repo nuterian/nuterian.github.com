@@ -16,11 +16,18 @@ sends small messages (pointer, wind, where home is). Scrolling never waits on it
 - **Rules, in order of weight:** separation, alignment, cohesion, and *you* — the pointer
   scatters; nothing attracts.
 - **Home:** every boid is softly sprung to its own point in the 2013 brush *jm* (a 208-point
-  cloud sampled from the old logo — `js/mark.js`), top-centre of the viewport. Near home the
-  spring dominates and cruise speed drops to a few px/s, so the shape is legible but never
-  still; the whole mark also sways ±5 px on a slow sine. On load they start scattered and
-  drift in over several seconds. Scrolling raises the home with a 0.6 parallax and makes the
-  top edge permeable, so the flock follows it out rather than banding on the archive.
+  cloud sampled from the old logo — `js/mark.js`), sized ~half the viewport width and
+  optically centred (by the cloud's centroid) in the space the hero leaves above its text.
+  Near home the spring dominates and cruise speed drops to a few px/s, so the shape is
+  legible but never still; the whole mark sways ±5 px on a slow sine. On load they start
+  scattered and drift in over several seconds.
+- **The world is the page.** The simulation runs in document coordinates and the renderer
+  subtracts the scroll offset, so the birds are anchored to the page like the text is and
+  the viewport simply scrolls past them. Scrolling costs one tiny `view` message per frame —
+  no layout reads, no wind hacks.
+- **Speed is honest.** Every bird has its own top speed (0.8–1.2 × 110 px/s); fear buys at
+  most a 1.5× sprint and a tracing job 1.6× — nothing ever teleports, on hover, scroll or
+  otherwise. Forces are capped, so all motion is progressive.
 - **Fright:** a boid inside the pointer's radius forgets home for ~2–4 s and flocks away with
   the others at full alignment/cohesion; as the fright fades it drifts back. A lingering
   pointer opens a clear ring in the mark; leave, and it heals.
@@ -28,17 +35,19 @@ sends small messages (pointer, wind, where home is). Scrolling never waits on it
   user agent): it sheds boids when the average frame is slower than 45 fps and regrows
   when faster than 70.
 - **Timestep:** fixed 1/60 s with an accumulator, so 30, 60 and 120 Hz screens see the same
-  behaviour. Neighbour search is a uniform grid keyed by perception radius.
+  behaviour. Neighbour search is a uniform grid keyed by perception radius; the hot loops
+  (step and render) allocate nothing — all scratch is preallocated. The canvas backing
+  store is capped near 6.5 MPx, so huge retina viewports render at ~1.5× instead of 2×.
 - **Birds, not strokes:** each boid is a baseless triangle — head at its position, two wing
   arms swept back from the heading — with a fully procedural wingbeat: the phase advances
-  with speed (a slow flutter at rest, ~6 Hz fleeing), the arms beat fore/aft around their
+  with speed (~0.9 Hz at rest, ~4 Hz fleeing), the arms beat fore/aft around their
   resting sweep, and each arm foreshortens at the stroke's extremes as the wing leaves the
   plane. Wing length grows a little with speed. Stroke width 1.25 px, matching the type's
   stems; each boid has a personal opacity. Perched birds face up with wings folded.
 - **It respects the text:** rectangles marked `data-obstacle` (hero text, archive header,
   rows and footer on wide screens) are soft obstacles.
-- **Scroll is wind.** Hover a link and the nearest few boids break off and trace its
-  underline; the CSS underline fades in 0.7 s behind them.
+- Hover a link and the nearest few boids break off and trace its underline; the CSS
+  underline fades in 0.7 s behind them.
 - **Open a sheet:** the page recedes (opacity .22, no backdrop paint), the flock slows to
   0.35× and dims; ~14 birds perch upright along the sheet's top edge. The sheet's rect is
   the only obstacle while open.
