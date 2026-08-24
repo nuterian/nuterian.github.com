@@ -10,7 +10,7 @@ function make(n, dpr, painterKind) {
   painter.resize(W, H, dpr);
   const f = new Flock({ width: W, height: H, count: n, seed: 7 });
   const bw = 640, bh = bw / MARK_ASPECT;
-  f.setHome(MARK, MARK_ASPECT, { x: W/2 - bw/2, y: 260 - bh/2, w: bw, h: bh });
+  f.setHome(MARK, MARK_ASPECT, { w: bw, h: bh }); // position is the placement solver's job now
   for (let i = 0; i < 400; i++) f._step(STEP);   // settle
   return { f, painter, gl: painter.gl };
 }

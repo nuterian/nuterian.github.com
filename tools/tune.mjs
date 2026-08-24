@@ -7,7 +7,7 @@ const params = JSON.parse(json);
 const W = 1440, H = 900;
 const f = new Flock({ width: W, height: H, count: 200, seed: 7, params });
 f.obstacles = [{ x: 72, y: 575, w: 440, h: 230 }];
-f.setHome(MARK, MARK_ASPECT, { x: 500, y: 75, w: 440, h: 283 });
+f.setHome(MARK, MARK_ASPECT, { w: 440, h: 283 }); // position is the placement solver's job now
 const OUT = process.env.OUT || new URL('./out/', import.meta.url).pathname;
 import { mkdirSync } from 'node:fs'; mkdirSync(OUT, { recursive: true });
 let t = 0;

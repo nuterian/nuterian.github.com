@@ -150,7 +150,8 @@ addEventListener('resize', () => {
   resizeRaf = requestAnimationFrame(() => {
     const { w, h } = measureWorld();
     post({ type: 'resize', dpr: dpr(), w, h });
-    sendHome(false); sendObstacles();
+    post({ type: 'home-size', size: homeSize() });
+    sendObstacles();
   });
 }, { passive: true });
 document.addEventListener('visibilitychange', () => post({ type: 'visible', value: !document.hidden }));
@@ -210,25 +211,18 @@ function onTilt(e) {
   post({ type: 'gravity', x: gx, y: gy });
 }
 
-// Home: the 2013 jm mark, centred in the canvas by the point cloud's centroid
-// (not its bounding box) so it sits optically centred. The margin around it is
-// the room the flock has to scatter into.
-let markCx = 0.5, markCy = 0.5;
-{ let sx = 0, sy = 0; for (let i = 0; i < MARK.length; i += 2) { sx += MARK[i]; sy += MARK[i + 1]; }
-  markCx = sx / (MARK.length / 2) / 100; markCy = sy / (MARK.length / 2) / 100; }
-function homeBox() {
+// Home: the 2013 jm mark. Only its SIZE is decided here — where it sits is
+// the worker's own job (a placement solver finds whatever whitespace is on
+// screen and glides the mark there; see flock.js). So there is nothing to
+// recompute on scroll from this side at all — one message at startup, and
+// one again if the viewport resizes and the ideal size changes.
+function homeSize() {
   const { w, h } = world;
-  const text = $('.hero-text').getBoundingClientRect();
-  const textTop = text.top + scrollY + 90;      // document(+bleed) space
-  const bw = Math.min((w - 180) * 0.5, 660);
-  const bh = bw / MARK_ASPECT;
-  const cy = Math.max(bh / 2 + 60, Math.min(textTop * 0.52, h * 0.5));
-  return { x: w / 2 - bw * markCx, y: cy - bh * markCy, w: bw, h: bh };
+  const bw = Math.min(w * 0.42, 620);
+  return { w: bw, h: bw / MARK_ASPECT };
 }
-function sendHome(full = true) {
-  post(full ? { type: 'home', points: MARK, aspect: MARK_ASPECT, box: homeBox() } : { type: 'home-box', box: homeBox() });
-}
-sendHome(true);
+function sendHome() { post({ type: 'home', points: MARK, aspect: MARK_ASPECT, size: homeSize() }); }
+sendHome();
 sendObstacles();
 
 /* ---------------------------------------------------------------------------
@@ -357,8 +351,8 @@ window.flock = {
   get fps() { return Math.round(stats.fps); },
   get params() { return { ...DEFAULTS }; },
   set params(p) { post({ type: 'params', params: p }); },
-  get home() { return homeBox(); },
-  set home(on) { on ? sendHome(true) : post({ type: 'home-off' }); },
+  get home() { return homeSize(); },
+  set home(on) { on ? sendHome() : post({ type: 'home-off' }); },
   season: s => post({ type: 'season', season: s }),
   tempo: v => post({ type: 'tempo', value: v }),
   get seed() { return seed; },

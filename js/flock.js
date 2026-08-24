@@ -23,25 +23,23 @@
  *             per bird — and even a settled flock sheds the odd restless bird
  *             into a lap, so the idle state is never everyone at once.
  *
- * The content is NOT a wall. Early builds made it one — hard collision,
- * line-of-sight routing, "am I hemmed in" panic states — and birds kept
- * finding force equilibria against it: pinned queues, beads along an edge,
- * jammed corners. A goal can always be pulled toward a solid; the fix isn't
- * a cleverer solid, it's not having one. Instead every content block is a
- * single smooth potential field (`_fieldForce`): zero at a fuzzy radius,
- * rising continuously toward the middle, with a small tangential swirl so
- * a bird sliding past a corner curves around it instead of stalling on the
- * corner. There is no boolean "blocked", nothing pins in place, and a bird
- * that does drift over content is fine — it renders above the text (a
- * higher canvas z-index), so overlap reads as "flying over", not as a bug.
+ * THE MARK LIVES IN WHITESPACE. Its size is fixed, but its place is not:
+ * a small placement solver (`_placeHome`) finds the best spot for the mark
+ * box in the current viewport — least overlap with content, on-canvas, with
+ * hysteresis so near-ties never make it hop — and the home box GLIDES there.
+ * The birds just chase their moving home. Scroll to the archive and the
+ * whitespace is on the right, so the mark reforms there, same size; scroll
+ * back up and it glides home to the hero. Relocation is the only reason a
+ * bird crosses content, and while crossing it renders above the text (the
+ * canvas sits over the page), so it reads as flying over, never under.
+ * A weak smooth field around each content block gives them their aversion —
+ * a nudge, deliberately too weak to trap anyone (a field that can win a
+ * tug-of-war creates standing equilibria: queues of not-stuck birds).
  *
  * The world is the VIEWPORT (plus a 90 px bleed): the canvas is fixed, and
- * the page's content — the field sources, the mark's anchor — lives in
- * document coordinates that the worker offsets by the scroll position (one
- * tiny message per scrolled frame; no layout reads). Scrolling sweeps the
- * field through the birds' sky rather than dragging the birds with the page.
- * When the mark scrolls out of view its birds disperse into ambient roaming
- * around whatever whitespace is on screen, and regroup when it returns.
+ * the content rectangles live in document coordinates that the worker
+ * offsets by the scroll position (one tiny message per scrolled frame; no
+ * layout reads).
  *
  * Units: CSS pixels and seconds, in canvas-local coordinates. Fixed 1/60
  * timestep; frames without a step are not redrawn; the hot loops allocate
@@ -75,9 +73,24 @@ export const DEFAULTS = {
   roamSpeed: 105,     // px/s — cruising speed of a lap around the campus
   restless: 0.004,    // 1/s — chance per second a settled bird leaves for a lap
   overshoot: 150,     // px — how far beyond the canvas a bird may fly before turning
-  fieldRadius: 130,    // px — the content's field fades to nothing at this distance
-  fieldForce: 210,     // px/s² — its strength at zero distance (never a hard wall)
-  fieldSwirl: 0.8,     // 0–1 — how much of the push is redirected to curve past corners
+  fieldRadius: 70,     // px — the content's field fades to nothing at this distance
+  fieldForce: 90,      // px/s² — its strength at zero distance: a NUDGE, not a fence.
+                        // Strong enough to bias birds away from sitting directly on
+                        // top of text, weak enough that it can never outlast another
+                        // force (the roam ring, cohesion) for long — a field that
+                        // can win a tug-of-war creates a standing equilibrium exactly
+                        // where the two forces balance, and since many different
+                        // birds pass through that one location, it reads as a
+                        // permanent queue even though no single bird is stuck. The
+                        // fix for that is not a stronger field, it's a weaker one:
+                        // letting birds actually cross is the point (see header).
+  fieldSwirl: 0.18,    // 0–1 — how much of the push is redirected to curve past corners
+                      // (kept LOW: a strong tangential term is a curl field, and a
+                      // curl field can trap a bird in a stable orbit around an
+                      // isolated obstacle — a swirling ring exactly like a magnetic
+                      // field bends a charged particle into a circle. 0.8 did this
+                      // visibly around the archive header. Pure radial repulsion
+                      // cannot sustain an orbit on its own, so this stays small.)
 };
 
 // Deterministic PRNG (mulberry32). A seed makes the flock reproducible, which
@@ -158,9 +171,10 @@ export class Flock {
     this.attractors = [];   // {x, y, r, k, until}
     this.obstacles = [];    // {x, y, w, h} in document(+bleed) space — the content walls
     this.scroll = 0;        // document scroll offset; world y = doc y − scroll
-    this._hbOut = false;    // whether the mark is currently scrolled out of view
     this.gravity = { x: 0, y: 0 }; // from device tilt
-    this.home = null;       // {points, aspect, box:{x,y,w,h}} — where the flock belongs
+    this.home = null;       // {points, aspect, size:{w,h}} — the mark itself
+    this.homeBox = null;    // {x,y,w,h} view space — where it currently sits (animated)
+    this._homeGoal = null;  // where the placement solver currently wants it
     this._dv = { x: 0, y: 0 }; // desired-velocity scratch, reused per bird
     this.tempo = 1;         // global speed multiplier (dims when a sheet is open)
     this.setCount(opts.count || 120);
@@ -192,8 +206,6 @@ export class Flock {
     this.cjx = grow(this.cjx, () => 0);    // personal ring centre offset
     this.cjy = grow(this.cjy, () => 0);
     this.slow = grow(this.slow, () => 0);  // seconds spent near-stationary (any cause) — generic unstick
-    const evac = new Uint8Array(n); if (this.evac) evac.set(this.evac.subarray(0, Math.min(old, n)));
-    this.evac = evac; // roaming only because the mark scrolled away
     const st = new Uint8Array(n); if (this.st) st.set(this.st.subarray(0, Math.min(old, n)));
     this.st = st; // 0 home · 1 startled · 2 roaming
     this.fx = new Float32Array(n);
@@ -231,18 +243,73 @@ export class Flock {
     if (k > 0 && life > 0) this.attractors.push({ id, x, y, r, k, until: this.time + life });
   }
 
-  // Give the flock a home: a point cloud (percent coords) placed in `box` (CSS px).
-  setHome(points, aspect, box) {
-    this.home = { points, aspect, box };
+  // Give the flock a home: a point cloud (percent coords) at a fixed size.
+  // WHERE it sits is the placement solver's job, not the caller's.
+  setHome(points, aspect, size) {
+    this.home = { points, aspect, size };
     this._assign();
   }
-  // Move the home (scroll parallax, resize) without reassigning points.
-  moveHome(box) {
+  setHomeSize(size) {
     if (!this.home) return;
-    this.home.box = box;
+    this.home.size = size;
     this._assign(false);
   }
-  clearHome() { this.home = null; this.tgt = null; }
+  clearHome() { this.home = null; this.homeBox = null; this._homeGoal = null; this.tgt = null; }
+
+  // Find the best place for the mark box in the current viewport: least
+  // overlap with content (view space), fully on-canvas, gently preferring
+  // the viewport's visual centre. Coarse grid, then a few refinement rings.
+  // Hysteresis keeps the current spot unless a new one is clearly better,
+  // so near-ties never make the mark hop. ~60 candidates × a handful of
+  // rects — microseconds, run at most ~7×/s while scrolling.
+  _placeHome() {
+    const S = this.home?.size; if (!S) return;
+    const M = 34;                       // breathing room around the mark
+    const w = this.w, h = this.h, scroll = this.scroll;
+    const bw = S.w + 2 * M, bh = S.h + 2 * M;
+    const score = (cx, cy) => {
+      const x0 = cx - bw / 2, y0 = cy - bh / 2;
+      let pen = 0;
+      // stay on the canvas (an off-canvas mark is an invisible mark)
+      const ex = Math.max(0, -x0) + Math.max(0, x0 + bw - w);
+      const ey = Math.max(0, -y0) + Math.max(0, y0 + bh - h);
+      pen += (ex * bh + ey * bw) * 3;
+      for (const o of this.obstacles) {
+        const oy0 = o.y - scroll, oy1 = o.y + o.h - scroll;
+        const ix = Math.min(x0 + bw, o.x + o.w) - Math.max(x0, o.x);
+        const iy = Math.min(y0 + bh, oy1) - Math.max(y0, oy0);
+        if (ix > 0 && iy > 0) pen += ix * iy;
+      }
+      const dx = cx - w / 2, dy = cy - h * 0.46;
+      pen += Math.sqrt(dx * dx + dy * dy) * 14;
+      return pen;
+    };
+    const xs0 = bw / 2, xs1 = Math.max(xs0, w - bw / 2);
+    const ys0 = bh / 2, ys1 = Math.max(ys0, h - bh / 2);
+    let bcx = w / 2, bcy = h / 2, bestPen = Infinity;
+    const NX = 7, NY = 6;
+    for (let iy = 0; iy <= NY; iy++) for (let ix = 0; ix <= NX; ix++) {
+      const cx = xs0 + (xs1 - xs0) * ix / NX, cy = ys0 + (ys1 - ys0) * iy / NY;
+      const pn = score(cx, cy);
+      if (pn < bestPen) { bestPen = pn; bcx = cx; bcy = cy; }
+    }
+    let stepX = (xs1 - xs0) / NX / 2, stepY = (ys1 - ys0) / NY / 2;
+    for (let r = 0; r < 3; r++) {
+      for (let k = 0; k < 8; k++) {
+        const a = k * 0.7854;
+        const cx = bcx + Math.cos(a) * stepX, cy = bcy + Math.sin(a) * stepY;
+        const pn = score(cx, cy);
+        if (pn < bestPen) { bestPen = pn; bcx = cx; bcy = cy; }
+      }
+      stepX /= 2; stepY /= 2;
+    }
+    if (this._homeGoal) {
+      const cur = score(this._homeGoal.x + S.w / 2, this._homeGoal.y + S.h / 2);
+      if (cur <= bestPen * 1.15 + 2500) { bcx = this._homeGoal.x + S.w / 2; bcy = this._homeGoal.y + S.h / 2; }
+    }
+    this._homeGoal = { x: bcx - S.w / 2, y: bcy - S.h / 2, w: S.w, h: S.h };
+    if (!this.homeBox) this.homeBox = { ...this._homeGoal };
+  }
 
   season(name) { // 'snow' | null
     this.mode = name === 'snow' ? 'snow' : 'home';
@@ -292,6 +359,11 @@ export class Flock {
 
   // --- Simulation -----------------------------------------------------------
 
+  // this.tgt holds each bird's point in the mark relative to the box's
+  // top-left corner — not an absolute position. The box itself glides
+  // around the viewport (see _placeHome), and every bird's actual target
+  // is homeBox.xy + tgt, recomputed cheaply in _step without ever calling
+  // this again just because the box moved.
   _assign(reshuffle = true) {
     const h = this.home; if (!h) return;
     const pts = h.points, m = pts.length / 2;
@@ -305,8 +377,8 @@ export class Flock {
     if (!this.tgt || this.tgt.length !== this.n * 2) this.tgt = new Float32Array(this.n * 2);
     for (let i = 0; i < this.n; i++) {
       const k = this.order[i % m];
-      this.tgt[i * 2] = h.box.x + (pts[k * 2] / 100) * h.box.w;
-      this.tgt[i * 2 + 1] = h.box.y + (pts[k * 2 + 1] / 100) * h.box.h;
+      this.tgt[i * 2] = (pts[k * 2] / 100) * h.size.w;
+      this.tgt[i * 2 + 1] = (pts[k * 2 + 1] / 100) * h.size.h;
     }
   }
 
@@ -342,23 +414,26 @@ export class Flock {
     const scroll = this.scroll;
     const homing = mode === 'home' && !!this.tgt;
 
-    // Is the mark on screen? When it scrolls away, its birds disperse into
-    // ambient roaming; when it returns, they wrap up their laps and regroup.
-    const hb = this.home?.box;
-    const hbOut = !!hb && (hb.y + hb.h - scroll < 40 || hb.y - scroll > this.h - 40);
-    if (hbOut !== this._hbOut && homing) {
-      this._hbOut = hbOut;
-      for (let i = 0; i < this.n; i++) {
-        if (hbOut && this.st[i] === 0) { this._roam(i, 40); this.evac[i] = 1; this.lastA[i] = Math.atan2(this.y[i] - this.h * 0.45, this.x[i] - this.w / 2); }
-        else if (!hbOut && this.evac[i]) { this.lapR[i] = Math.min(this.lapR[i], (0.15 + this.random() * 0.6) * 6.283); this.evac[i] = 0; }
+    // The mark lives in whitespace: find where it belongs right now (cheap —
+    // see _placeHome) and glide the box toward it. No evacuation logic is
+    // needed any more — the mark is simply always somewhere on-canvas, so
+    // birds never have to flee it off scroll; they just track a box that
+    // occasionally moves.
+    if (this.home) {
+      this._placeHome();
+      const g = this._homeGoal, b = this.homeBox;
+      const gdx = g.x - b.x, gdy = g.y - b.y, gd = Math.sqrt(gdx * gdx + gdy * gdy);
+      if (gd > 0.3) {
+        const gs = Math.min(gd * 2.4, 260); // eases in, capped — a deliberate glide, not a snap
+        b.x += gdx / gd * gs * dt; b.y += gdy / gd * gs * dt;
       }
     }
     // The whole mark sways very slowly, so even at rest it is never a still image.
     const swayX = Math.sin(t * 0.31) * 5, swayY = Math.cos(t * 0.23) * 4;
-    // The campus loop: a wide ellipse through the viewport's open space.
-    // (Walls are dodged by lookahead, not by shrinking the ring.)
-    const ccx = this.w / 2, ccy = this.h * 0.45;
-    const markR = this.home ? Math.max(this.home.box.w, this.home.box.h) * 0.55 : 180;
+    // The campus loop: a wide ellipse around wherever the mark currently is.
+    const hb = this.homeBox;
+    const ccx = hb ? hb.x + hb.w / 2 : this.w / 2, ccy = hb ? hb.y + hb.h / 2 : this.h * 0.45;
+    const markR = hb ? Math.max(hb.w, hb.h) * 0.55 : 180;
     const ringX = Math.max(this.w * 0.36, markR + 90);
     const ringY = Math.max(this.h * 0.28, markR * 0.7 + 70);
     const ptr = this.pointer;
@@ -420,7 +495,7 @@ export class Flock {
       } else if (si === 0) { // HOME
         // HOME — spring to your point; hover slowly when you're there.
         if (homing) {
-          const tx = this.tgt[i * 2] + swayX, ty = this.tgt[i * 2 + 1] + swayY - scroll;
+          const tx = hb.x + this.tgt[i * 2] + swayX, ty = hb.y + this.tgt[i * 2 + 1] + swayY;
           const dx = tx - xi, dy = ty - yi;
           const homeD = Math.sqrt(dx * dx + dy * dy) || 1e-3;
           const pull = Math.min(homeD * p.homePull, p.homeSpeed);
@@ -467,9 +542,9 @@ export class Flock {
         // Radial correction toward the ring, back in real space.
         let ux = qx / qd * rX, uy = qy / qd * rY;
         const ul = Math.sqrt(ux * ux + uy * uy) || 1e-3; ux /= ul; uy /= ul;
-        let rad = (1 - qd) * 110; rad = rad > 60 ? 60 : rad < -60 ? -60 : rad;
-        Fx += (tx * roamSp + ux * rad - vx[i]) * 1.6;
-        Fy += (ty * roamSp + uy * rad - vy[i]) * 1.6;
+        let rad = (1 - qd) * 110; rad = rad > 110 ? 110 : rad < -110 ? -110 : rad;
+        Fx += (tx * roamSp + ux * rad - vx[i]) * 1.0;
+        Fy += (ty * roamSp + uy * rad - vy[i]) * 1.0;
         const a = Math.atan2(qy, qx);
         let da = a - this.lastA[i];
         if (da > Math.PI) da -= 6.283; else if (da < -Math.PI) da += 6.283;
@@ -798,8 +873,8 @@ export class Runner {
       case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(120); } break;
       case 'scroll': if (f) f.scroll = m.y; break;
       case 'snapshot': this.onsnapshot?.({ x: [...f.x], y: [...f.y], vx: [...f.vx], vy: [...f.vy], st: [...f.st], scroll: f.scroll, obstacles: f.obstacles }); break;
-      case 'home': f?.setHome(m.points, m.aspect, m.box); if (this.still) this.settle(); break;
-      case 'home-box': f?.moveHome(m.box); if (this.still) this.settle(240); break;
+      case 'home': f?.setHome(m.points, m.aspect, m.size); if (this.still) this.settle(); break;
+      case 'home-size': f?.setHomeSize(m.size); if (this.still) this.settle(180); break;
       case 'home-off': f?.clearHome(); break;
       case 'tempo': if (f) f.tempo = m.value; break;
       case 'count': f?.setCount(m.value); break;

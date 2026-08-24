@@ -1,7 +1,7 @@
 /*
  * flock.worker.js — runs the flock off the main thread.
  * The page transfers its <canvas> here (OffscreenCanvas) and then only sends
- * small messages: pointer position, scroll wind, what to form. Scrolling and
+ * small messages: pointer position, scroll offset, obstacle rects. Scrolling and
  * layout on the main thread never wait on the simulation, and vice versa.
  */
 import { Runner } from './flock.js';

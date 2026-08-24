@@ -23,15 +23,17 @@ post({ type: 'init', dpr, ...world(), count: coarse ? 90 : 220, still: reduce })
 post({ type: 'style', style: { color: flockColor(dark(), hue) } });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => post({ type: 'style', style: { color: flockColor(dark(), hue) } }));
 
-// Sample "404" into points: that's home here.
+// Sample "404" into points: that's home here. Only the SIZE is decided —
+// where it sits is the worker's own placement solver (no obstacles on this
+// page, so it just settles near the viewport centre, same as before).
 const { points, aspect } = textPoints(document.createElement('canvas').getContext('2d'), '404', '600 150px system-ui, sans-serif', 6);
-function box() {
+function homeSize() {
   const { w, h } = world();
-  const bw = Math.min(w * 0.62, h * 0.62 * aspect), bh = bw / aspect;
-  return { x: w / 2 - bw / 2, y: h / 2 - bh / 2, w: bw, h: bh };
+  const bw = Math.min(w * 0.62, h * 0.62 * aspect);
+  return { w: bw, h: bw / aspect };
 }
-post({ type: 'home', points, aspect, box: box() });
-addEventListener('resize', () => post({ type: 'home-box', box: box() }), { passive: true });
+post({ type: 'home', points, aspect, size: homeSize() });
+addEventListener('resize', () => post({ type: 'home-size', size: homeSize() }), { passive: true });
 
 addEventListener('resize', () => post({ type: 'resize', dpr, ...world() }), { passive: true });
 addEventListener('pointermove', e => {
