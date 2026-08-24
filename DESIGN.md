@@ -157,8 +157,20 @@ so contrast is constant at every hour:
 | accent   | oklch(46% .12 hue) — 5.9:1  | oklch(80% .12 hue) — 9.8:1  |
 | flock    | oklch(42% .10 hue)          | oklch(76% .10 hue)          |
 
+Each token is written **once**, in `:root`, as `light-dark(light, dark)` — the table above
+is literally the stylesheet. There is no second dark block to keep in sync: a duplicated
+palette is a palette that drifts, and this one had been duplicated twice (a
+`prefers-color-scheme` copy and a `[data-theme='dark']` copy of the same eight values).
+Because `light-dark()` reads the element's used `color-scheme`, the manual override is now
+just `:root[data-theme='dark'] { color-scheme: dark }` and its light twin — one declaration
+that moves the whole palette *and* the UA's own surfaces (scrollbars, caret, form controls),
+which the old token-only override left stranded on the system's theme. `--shadow` isn't a
+colour, so `light-dark()` sits on each of its two shadow colours instead of around the list.
+
 Theme follows the system. `t` or the footer `·` cycles system → dark → light
-(persisted; applied before first paint by an inline script, so no flash).
+(persisted; applied before first paint by an inline script, so no flash). The canvas colour
+is computed in JS, not read from CSS (`js/hue.js` mirrors `--flock`), so `light-dark()` in
+the stylesheet never has to be parsed by script.
 
 ## Type
 

@@ -32,47 +32,43 @@
 @property --hue { syntax: '<number>'; inherits: true; initial-value: 88; }
 
 :root {
+  /* One palette, written once. Every token names its light value and its dark
+   * value in the same place, and `light-dark()` picks between them from the
+   * element's used `color-scheme` — so the two themes can't drift apart in a
+   * copy-paste, which is exactly what a duplicated dark block invites. The
+   * manual override below therefore sets only `color-scheme`: switching the
+   * scheme switches every token AND the UA's own surfaces (scrollbars, form
+   * controls, the caret) in one move, which the old token-only override
+   * silently left behind on the wrong theme. */
   color-scheme: light dark;
   --hue: 88;                         /* the 2013 yellow, until JS knows the hour */
   --sans: 'Geist', 'Geist Fallback', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  --bg: oklch(98.2% 0.004 95);
-  --fg: oklch(19% 0.01 95);
-  --muted: oklch(48% 0.012 95);
-  --hair: oklch(19% 0.01 95 / 0.14);
-  --accent: oklch(46% 0.12 var(--hue));       /* 5.9:1 on --bg at every hue */
-  --accent-soft: oklch(46% 0.12 var(--hue) / 0.12);
-  --flock: oklch(42% 0.10 var(--hue));
-  --shadow: 0 1px 2px oklch(0% 0 0 / 0.06), 0 12px 40px -12px oklch(0% 0 0 / 0.25);
+  --bg:     light-dark(oklch(98.2% 0.004 95),      oklch(14% 0.006 260));
+  --fg:     light-dark(oklch(19% 0.01 95),         oklch(93% 0.006 95));
+  --muted:  light-dark(oklch(48% 0.012 95),        oklch(66% 0.01 95));
+  --hair:   light-dark(oklch(19% 0.01 95 / 0.14),  oklch(93% 0.006 95 / 0.14));
+  /* Lightness and chroma are fixed per theme, so contrast holds at every hue:
+   * 5.9:1 on --bg in light, 9.8:1 in dark. */
+  --accent:      light-dark(oklch(46% 0.12 var(--hue)),        oklch(80% 0.12 var(--hue)));
+  --accent-soft: light-dark(oklch(46% 0.12 var(--hue) / 0.12), oklch(80% 0.12 var(--hue) / 0.14));
+  --flock:       light-dark(oklch(42% 0.10 var(--hue)),        oklch(76% 0.10 var(--hue)));
+  /* A shadow isn't a colour, so light-dark() goes on each of its two colours
+   * rather than around the whole list — one definition either way. Dark needs
+   * a heavier shadow to read at all against a near-black page. */
+  --shadow:
+    0 1px 2px      light-dark(oklch(0% 0 0 / 0.06), oklch(0% 0 0 / 0.3)),
+    0 12px 40px -12px light-dark(oklch(0% 0 0 / 0.25), oklch(0% 0 0 / 0.7));
 
   --gutter: clamp(1.25rem, 5vw, 5rem);
   --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   transition: --hue 2s linear;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --bg: oklch(14% 0.006 260);
-    --fg: oklch(93% 0.006 95);
-    --muted: oklch(66% 0.01 95);
-    --hair: oklch(93% 0.006 95 / 0.14);
-    --accent: oklch(80% 0.12 var(--hue));      /* 9.8:1 on --bg at every hue */
-    --accent-soft: oklch(80% 0.12 var(--hue) / 0.14);
-    --flock: oklch(76% 0.10 var(--hue));
-    --shadow: 0 1px 2px oklch(0% 0 0 / 0.3), 0 12px 40px -12px oklch(0% 0 0 / 0.7);
-  }
-}
-:root[data-theme='dark'] {
-  --bg: oklch(14% 0.006 260);
-  --fg: oklch(93% 0.006 95);
-  --muted: oklch(66% 0.01 95);
-  --hair: oklch(93% 0.006 95 / 0.14);
-  --accent: oklch(80% 0.12 var(--hue));
-  --accent-soft: oklch(80% 0.12 var(--hue) / 0.14);
-  --flock: oklch(76% 0.10 var(--hue));
-  --shadow: 0 1px 2px oklch(0% 0 0 / 0.3), 0 12px 40px -12px oklch(0% 0 0 / 0.7);
-}
+/* The manual theme switch. Nothing to restate — the scheme is the palette. */
+:root[data-theme='dark']  { color-scheme: dark; }
+:root[data-theme='light'] { color-scheme: light; }
 
 /* --- Base ---------------------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; }
