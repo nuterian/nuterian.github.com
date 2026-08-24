@@ -20,7 +20,6 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const root = document.documentElement;
 const params = new URLSearchParams(location.search);
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const finePointer = matchMedia('(hover: hover) and (pointer: fine)');
 const STILL = params.has('still') || reduceMotion.matches;
 
 let post;          // send a message to wherever the flock lives (set in §2)
@@ -30,7 +29,6 @@ let stats = { fps: 0, n: 0 };
 // Archive state (used across sections; the archive itself is §4).
 const sheet = $('#sheet');
 const sheetTitle = $('#sheet-title');
-const preview = $('#preview'), previewImg = $('img', preview);
 const rows = $$('.row');
 const slugs = rows.map(r => r.dataset.slug);
 const homes = new Map(); // slug → where its .sheet lives when closed
@@ -142,6 +140,10 @@ function startWorker() {
   } catch { return false; }
 }
 if (!startWorker()) startMainThread();
+// The canvas is live: only now may the no-JS still stand down (see style.css).
+// Anything that throws above this line leaves the still on screen, which is
+// the whole point — the fallback outlives a broken main.js.
+root.classList.add('flock-on');
 
 // Keep the canvas the size of the viewport.
 let resizeRaf = 0;
@@ -175,7 +177,6 @@ addEventListener('pointermove', e => {
     pointerRaf = 0;
     const r = canvas.getBoundingClientRect();   // pointer in canvas-local px
     post({ type: 'pointer', x: px - r.left, y: py - r.top, on: true });
-    if (preview.classList.contains('on')) movePreview(px, py);
   });
 }, { passive: true });
 addEventListener('pointerleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
@@ -247,7 +248,6 @@ function openSheet(slug, { push = true } = {}) {
   go();
   // The flock dims and slows while you read.
   post({ type: 'tempo', value: 0.35 }); pushStyle({ alpha: 0.8 });
-  preview.classList.remove('on');
   $('#sheet-prev').disabled = slugs.indexOf(slug) === 0;
   $('#sheet-next').disabled = slugs.indexOf(slug) === slugs.length - 1;
 }
@@ -303,27 +303,6 @@ function route(push) {
   else if (sheet.open) closeSheet({ back: false });
 }
 route(false);
-
-// Hover previews: a small greyscale glimpse near the pointer.
-const archiveEl = $('.archive');
-function movePreview(x, y) {
-  if (vw() < 1100) return;
-  const a = archiveEl.getBoundingClientRect();
-  const px = Math.min(a.right + 40, vw() - 320 - 24);
-  const py = Math.max(120, Math.min(y, vh() - 120));
-  preview.style.setProperty('--px', `${px}px`); preview.style.setProperty('--py', `${py}px`);
-}
-if (finePointer.matches) {
-  rows.forEach(r => {
-    r.addEventListener('pointerenter', e => {
-      const s = r.dataset.slug;
-      previewImg.src = `img/archive/${s}-preview.webp`;
-      movePreview(e.clientX, e.clientY);
-      preview.classList.add('on');
-    });
-    r.addEventListener('pointerleave', () => preview.classList.remove('on'));
-  });
-}
 
 /* ---------------------------------------------------------------------------
  * 5. Small things

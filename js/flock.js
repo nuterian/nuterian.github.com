@@ -332,12 +332,26 @@ export class Flock {
       let dx = px - cx, dy = py - cy;
       let d = Math.sqrt(dx * dx + dy * dy);
       if (d >= R) continue;
-      if (d < 1e-3) { // inside: push from the block's centre instead — still smooth, no clamp
-        dx = px - (o.x + o.w / 2); dy = py - (o.y + o.h / 2);
-        d = Math.sqrt(dx * dx + dy * dy) || 1;
+      let ux, uy, s;
+      if (d < 1e-3) {
+        // Inside: full-strength push straight out the NEAREST face — the
+        // shortest way back to open air, matching the surface value of the
+        // outside formula (s = 1) exactly, so crossing the boundary is
+        // continuous. Never push from the block's centre: in a long, thin
+        // block (a rule, the footer) that direction runs ALONG the block,
+        // herding every bird that grazes in into a single file down its
+        // length — and a centre distance fed into 1 − d/R goes far negative,
+        // which s² silently turns into a force explosion. Both at once drew
+        // a standing line of birds on every long content edge.
+        const el = px - o.x, er = o.x + o.w - px, et = py - o.y, eb = o.y + o.h - py;
+        const m = Math.min(el, er, et, eb);
+        ux = m === el ? -1 : m === er ? 1 : 0;
+        uy = m === et ? -1 : m === eb ? 1 : (ux === 0 ? 1 : 0);
+        s = 1;
+      } else {
+        ux = dx / d; uy = dy / d;
+        s = 1 - d / R;                   // 0 at the fuzzy edge, 1 at the surface
       }
-      const ux = dx / d, uy = dy / d;
-      const s = 1 - d / R;               // 0 at the fuzzy edge, 1 at the surface
       const mag = s * s * p.fieldForce;   // smoothstep-ish: continuous, no kink
       fx += ux * mag * (1 - p.fieldSwirl) + (-uy) * mag * p.fieldSwirl;
       fy += uy * mag * (1 - p.fieldSwirl) + (ux) * mag * p.fieldSwirl;
@@ -872,7 +886,7 @@ export class Runner {
       case 'gravity': if (f) { f.gravity.x = m.x; f.gravity.y = m.y; } break;
       case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(120); } break;
       case 'scroll': if (f) f.scroll = m.y; break;
-      case 'snapshot': this.onsnapshot?.({ x: [...f.x], y: [...f.y], vx: [...f.vx], vy: [...f.vy], st: [...f.st], scroll: f.scroll, obstacles: f.obstacles }); break;
+      case 'snapshot': this.onsnapshot?.({ x: [...f.x], y: [...f.y], vx: [...f.vx], vy: [...f.vy], st: [...f.st], scroll: f.scroll, obstacles: f.obstacles, homeBox: f.homeBox ? { ...f.homeBox } : null, w: f.w, h: f.h }); break;
       case 'home': f?.setHome(m.points, m.aspect, m.size); if (this.still) this.settle(); break;
       case 'home-size': f?.setHomeSize(m.size); if (this.still) this.settle(180); break;
       case 'home-off': f?.clearHome(); break;
