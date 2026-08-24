@@ -265,7 +265,7 @@ js/hue.js         hue of the day, OKLCH → sRGB
 js/mark.js        the 2013 mark as points
 js/404.js
 fonts/            subset Geist
-img/archive/      AVIF/WebP screenshots and previews
+img/archive/      AVIF/WebP screenshots
 img/mark.svg      favicon, theme-aware
 img/og.png        generated from the site itself (?still&seed=2013)
 2013/             the previous site, untouched

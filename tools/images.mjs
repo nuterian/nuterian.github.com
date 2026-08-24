@@ -1,8 +1,7 @@
 // Generates the archive imagery and the jm-mark point cloud from the 2013 assets.
-//   ../img/archive/<slug>-<n>.{avif,webp}      full-length screenshots, 960w (source resolution)
-//   ../img/archive/<slug>-preview.{avif,webp}  greyscale hover previews, 640x400 (2x of 320x200)
-//   ../img/mark.svg                            favicon: the 2013 brush mark, theme-aware
-//   ./mark-points.json                         ~140 points sampled from the mark, pasted into main.js
+//   ../img/archive/<slug>-<n>.{avif,webp}  full-length screenshots, 960w (source resolution)
+//   ../img/mark.svg                        favicon: the 2013 brush mark, theme-aware
+//   ./mark-points.json                     208 points sampled from the mark, pasted into js/mark.js
 import sharp from 'sharp';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -30,14 +29,6 @@ for (const [slug, files] of Object.entries(projects)) {
     total += a.size;
     console.log(`${slug}-${i + 1}: avif ${a.size}  webp ${w.size}`);
   }
-  // Preview: top 960x600 crop of the first screenshot, greyscale, 640x400.
-  const meta = await sharp(P(new URL(files[0], OLD))).metadata();
-  const h = Math.min(600, meta.height);
-  const prev = sharp(P(new URL(files[0], OLD))).extract({ left: 0, top: 0, width: 960, height: h })
-    .resize(640, 400, { fit: 'cover', position: 'top' }).greyscale();
-  const pa = await prev.clone().avif({ quality: 50 }).toFile(P(new URL(`${slug}-preview.avif`, OUT)));
-  const pw = await prev.clone().webp({ quality: 72 }).toFile(P(new URL(`${slug}-preview.webp`, OUT)));
-  console.log(`${slug}-preview: avif ${pa.size}  webp ${pw.size}`);
 }
 console.log('total avif bytes', total);
 
@@ -46,7 +37,7 @@ console.log('total avif bytes', total);
 const logo = sharp(P(new URL('logo.png', OLD))).ensureAlpha();
 const { data, info } = await logo.raw().toBuffer({ resolveWithObject: true });
 const pts = [];
-const step = 7; // grid pitch in source pixels; ~150 points for 218x140
+const step = 7; // grid pitch in source pixels; 208 points for 218x140
 for (let y = step / 2; y < info.height; y += step) {
   for (let x = step / 2; x < info.width; x += step) {
     const xi = Math.floor(x), yi = Math.floor(y);

@@ -89,7 +89,7 @@ function sendObstacles() {
 // 1.5x is plenty for 1.25 px strokes the shader already feathers, and it is
 // 1.8x less to composite than 2x. Nobody has ever spotted the difference.
 const dpr = () => (params.has('fdpr') ? +params.get('fdpr') : Math.min(1.5, devicePixelRatio || 1));
-const vw = () => innerWidth, vh = () => innerHeight;
+const vw = () => innerWidth;
 const coarse = matchMedia('(pointer: coarse)').matches;
 const TARGET = params.has('n') ? +params.get('n') : (coarse || innerWidth < 700 ? 70 : 200);
 const seed = params.has('seed') ? +params.get('seed') : undefined;
