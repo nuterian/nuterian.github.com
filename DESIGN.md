@@ -9,7 +9,7 @@ six freelance sites from 2012–2014, a footer. Almost no words; the flock does 
 
 ## The flock
 
-A boids simulation (Reynolds, 1986) drawn as ink strokes on a fixed, full-viewport canvas
+A boids simulation (Reynolds, 1986) drawn as small birds on a fixed, full-viewport canvas
 behind the page. It runs in a **Web Worker on an OffscreenCanvas**; the main thread only
 sends small messages (pointer, wind, where home is). Scrolling never waits on it.
 
@@ -29,8 +29,12 @@ sends small messages (pointer, wind, where home is). Scrolling never waits on it
   when faster than 70.
 - **Timestep:** fixed 1/60 s with an accumulator, so 30, 60 and 120 Hz screens see the same
   behaviour. Neighbour search is a uniform grid keyed by perception radius.
-- **Strokes:** length stretches with speed and shrinks to a dot at rest, so the flock's mood
-  is legible. Width 1.25 px, matching the type's stems. Each boid has a personal opacity.
+- **Birds, not strokes:** each boid is a baseless triangle — head at its position, two wing
+  arms swept back from the heading — with a fully procedural wingbeat: the phase advances
+  with speed (a slow flutter at rest, ~6 Hz fleeing), the arms beat fore/aft around their
+  resting sweep, and each arm foreshortens at the stroke's extremes as the wing leaves the
+  plane. Wing length grows a little with speed. Stroke width 1.25 px, matching the type's
+  stems; each boid has a personal opacity. Perched birds face up with wings folded.
 - **It respects the text:** rectangles marked `data-obstacle` (hero text, archive header,
   rows and footer on wide screens) are soft obstacles.
 - **Scroll is wind.** Hover a link and the nearest few boids break off and trace its

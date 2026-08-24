@@ -1,7 +1,7 @@
 // Renders one seeded frame of the flock as inline SVG and writes it into
 // index.html between <!--STILL--> markers. This is what you see with script off.
 import { readFile, writeFile } from 'node:fs/promises';
-import { Flock, STEP, MARK, MARK_ASPECT } from '../js/flock.js';
+import { Flock, STEP, MARK, MARK_ASPECT, wingTips } from '../js/flock.js';
 
 const W = 1440, H = 900;
 const f = new Flock({ width: W, height: H, count: 200, seed: 2013 });
@@ -12,11 +12,13 @@ for (let i = 0; i < 900; i++) f._step(STEP);
 
 let lines = '';
 for (let i = 0; i < f.n; i++) {
-  const sp = Math.hypot(f.vx[i], f.vy[i]) || 1;
-  const len = Math.min(18, 2.5 + sp * 0.085);
-  const x2 = f.x[i] - f.vx[i] / sp * len, y2 = f.y[i] - f.vy[i] / sp * len;
+  const sp = Math.hypot(f.vx[i], f.vy[i]);
+  const ux = sp > 0.01 ? f.vx[i] / sp : Math.cos(f.ph[i]);
+  const uy = sp > 0.01 ? f.vy[i] / sp : Math.sin(f.ph[i]);
+  const [lx, ly, rx, ry] = wingTips(ux, uy, sp, f.fp[i]);
   const o = (0.35 + f.op[i] * 0.6).toFixed(2);
-  lines += `<line x1="${f.x[i].toFixed(1)}" y1="${f.y[i].toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" opacity="${o}"/>`;
+  const pts = `${(f.x[i] + lx).toFixed(1)},${(f.y[i] + ly).toFixed(1)} ${f.x[i].toFixed(1)},${f.y[i].toFixed(1)} ${(f.x[i] + rx).toFixed(1)},${(f.y[i] + ry).toFixed(1)}`;
+  lines += `<polyline points="${pts}" opacity="${o}"/>`;
 }
 const svg = `<svg class="still" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">${lines}</svg>`;
 

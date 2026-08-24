@@ -89,6 +89,31 @@ export function textPoints(ctx2d, text, font, pitch = 6) {
   return { points, aspect: w / h };
 }
 
+
+/*
+ * A boid is a baseless triangle: head at its position, two wing arms swept
+ * back from the heading. The wingbeat is procedural — phase advances with
+ * speed (see _step) — and shows up two ways, as seen from above:
+ *   sweep: the arms beat fore/aft around their resting angle;
+ *   foreshortening: at the stroke's extremes the wing is out of plane, so
+ *   the arm draws shorter, and mid-stroke it is fully spread.
+ * At rest the beat is a slow flutter; fleeing, it is fast and deep.
+ * Returns [leftTipX, leftTipY, rightTipX, rightTipY].
+ */
+export function wingTips(ux, uy, sp, phase) {
+  const len = 3.6 + Math.min(sp * 0.045, 4.2);
+  const amp = Math.min(1, 0.25 + sp / 110);
+  // Skewed waveform: the downstroke is quicker than the upstroke.
+  const flap = Math.sin(phase + 0.45 * Math.sin(phase));
+  const sweep = 2.3 - flap * 0.42 * amp;                // 108°–156° off the heading
+  const wl = len * (1 - 0.22 * amp * flap * flap);      // slight foreshorten at the extremes
+  const cs = Math.cos(sweep), sn = Math.sin(sweep);
+  return [
+    (ux * cs - uy * sn) * wl, (ux * sn + uy * cs) * wl,
+    (ux * cs + uy * sn) * wl, (-ux * sn + uy * cs) * wl,
+  ];
+}
+
 export class Flock {
   constructor(opts = {}) {
     this.p = { ...DEFAULTS, ...opts.params };
@@ -124,6 +149,7 @@ export class Flock {
     this.vy = grow(this.vy, () => (this.random() - 0.5) * this.p.cruise);
     this.ph = grow(this.ph, () => this.random() * Math.PI * 2); // personal phase
     this.op = grow(this.op, () => 0.55 + this.random() * 0.45);  // personal opacity
+    this.fp = grow(this.fp, () => this.random() * Math.PI * 2);   // wingbeat phase
     this.scare = grow(this.scare, () => 0);                        // seconds of fright left
     const role = new Uint8Array(n); if (this.role) role.set(this.role.subarray(0, Math.min(old, n)));
     this.role = role; // 0 free, 1 perching, 2 tracing
@@ -408,6 +434,8 @@ export class Flock {
   }
 
   // --- Rendering ------------------------------------------------------------
+
+
   // Strokes stretch with speed and shrink to dots at rest, so the flock's mood
   // is legible. Width matches the stem of the body type so text and flock read
   // as one instrument.
@@ -416,9 +444,10 @@ export class Flock {
     ctx.save();
     ctx.scale(dpr, dpr);
     ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.lineWidth = width;
     ctx.strokeStyle = color;
-    const { n, x, y, vx, vy, op } = this;
+    const { n, x, y, vx, vy, op, fp } = this;
     const near = this.pointer.on ? this.pointer : null;
     // Batch by opacity bucket so we set globalAlpha rarely.
     const buckets = 6;
@@ -428,15 +457,17 @@ export class Flock {
       ctx.beginPath();
       for (let i = 0; i < n; i++) {
         let o = op[i];
-        if (near) { const d = Math.hypot(x[i] - near.x, y[i] - near.y); if (d < 220) o = Math.min(1, o + (1 - d / 220) * 0.4); }
+        if (near) { const d = Math.hypot(x[i] - near.x, y[i] - near.y); if (d < 220) o = Math.min(0.999, o + (1 - d / 220) * 0.4); }
         if (o < lo || o >= hi) continue;
         const sp = Math.hypot(vx[i], vy[i]);
-        let len = Math.min(18, 2.5 + sp * 0.085);
         let ux = sp > 0.01 ? vx[i] / sp : Math.cos(this.ph[i]);
         let uy = sp > 0.01 ? vy[i] / sp : Math.sin(this.ph[i]);
-        if (this.role[i] === 1 && sp < 6) { ux = 0; uy = 1; len = 4; } // perched: upright, like a bird on a wire
-        ctx.moveTo(x[i], y[i]);
-        ctx.lineTo(x[i] - ux * len, y[i] - uy * len);
+        let spd = sp, phase = fp[i];
+        if (this.role[i] === 1 && sp < 6) { ux = 0; uy = -1; spd = 0; phase = this.ph[i]; } // perched: facing up, wings folded
+        const [lx, ly, rx, ry] = wingTips(ux, uy, spd, phase);
+        ctx.moveTo(x[i] + lx, y[i] + ly);
+        ctx.lineTo(x[i], y[i]);
+        ctx.lineTo(x[i] + rx, y[i] + ry);
       }
       ctx.stroke();
     }
