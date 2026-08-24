@@ -108,8 +108,10 @@ img, svg { display: block; max-width: 100%; height: auto; }
 .skip:focus-visible { top: 1rem; }
 
 /* --- The flock's canvas, and the still for when there's no script -------- */
+/* Absolute, not fixed: the compositor scrolls the birds with the text, and
+ * scrolling costs the flock nothing. It spans the hero — the flock's world. */
 #flock, .still {
-  position: fixed; inset: 0; width: 100%; height: 100%;
+  position: absolute; top: 0; left: 0; width: 100%; height: 100vh; height: 100svh;
   z-index: 0; pointer-events: none;
 }
 .still { color: var(--flock); }

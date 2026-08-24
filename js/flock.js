@@ -19,11 +19,12 @@
  * back. Modes: 'home' (default), 'snow' (December only — the first commit on
  * this site after the 2013 reset was "Add snow").
  *
- * Units: CSS pixels and seconds, in DOCUMENT coordinates — the birds are
- * anchored to the page, not the screen. The renderer subtracts the scroll
- * offset (`view`), so scrolling moves the viewport past the flock, exactly
- * like the text. The simulation advances with a fixed timestep so it behaves
- * identically at 30, 60 or 120 Hz, and its hot loops allocate nothing.
+ * Units: CSS pixels and seconds, in DOCUMENT coordinates. The canvas is an
+ * absolute element at the top of the page, so the browser's compositor
+ * scrolls it with the text — scrolling costs the flock nothing at all.
+ * The simulation advances with a fixed timestep so it behaves identically
+ * at 30, 60 or 120 Hz; frames without a step are not redrawn; and the hot
+ * loops allocate nothing.
  */
 
 import { MARK, MARK_ASPECT } from './mark.js';
@@ -128,7 +129,6 @@ export class Flock {
     this.pointer = { x: -1e4, y: -1e4, on: false, speed: 0 };
     this.attractors = [];   // {x, y, r, k, until}
     this.obstacles = [];    // {x, y, w, h} soft — the flock avoids the text
-    this.wind = { x: 0, y: 0 };
     this.gravity = { x: 0, y: 0 }; // from device tilt
     this.perches = null;    // {x0,y0,x1,y1} — a wire to sit on
     this.traces = [];       // {i, x0,y0,x1,y1, t0, dur}
@@ -259,7 +259,9 @@ export class Flock {
 
   advance(dt) {
     this._acc += Math.min(dt, STEP * MAX_STEPS);
-    while (this._acc >= STEP) { this._step(STEP); this._acc -= STEP; }
+    let steps = 0;
+    while (this._acc >= STEP) { this._step(STEP); this._acc -= STEP; steps++; }
+    return steps;
   }
 
   _step(dt) {
@@ -387,7 +389,6 @@ export class Flock {
       }
 
       // Weather.
-      Fx += this.wind.x; Fy += this.wind.y;
       Fx += this.gravity.x; Fy += this.gravity.y;
       if (mode === 'snow') { Fy += 26; Fx += Math.sin(t * 1.4 + ph) * 18; }
 
@@ -441,7 +442,6 @@ export class Flock {
     }
 
     // Housekeeping.
-    this.wind.x *= 0.92; this.wind.y *= 0.92;
     this.pointer.speed *= 0.85;
     if (this.attractors.length) this.attractors = this.attractors.filter(a => a.until > t);
   }
@@ -450,12 +450,11 @@ export class Flock {
 
 
   // Two passes: geometry once into reused scratch, then one stroke per
-  // opacity bucket. `view` is the scroll offset — the world is the page.
-  render(ctx, { color, alpha = 1, width = 1.25, dpr = 1, w, h, view = 0, clear = true }) {
+  // opacity bucket.
+  render(ctx, { color, alpha = 1, width = 1.25, dpr = 1, w, h, clear = true }) {
     if (clear) ctx.clearRect(0, 0, w * dpr, h * dpr);
     ctx.save();
     ctx.scale(dpr, dpr);
-    ctx.translate(0, -view);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = width;
@@ -465,8 +464,7 @@ export class Flock {
     const near = this.pointer.on ? this.pointer : null;
     const buckets = 6;
     for (let i = 0; i < n; i++) {
-      const yi = y[i] - view;
-      if (yi < -30 || yi > h + 30) { buck[i] = 255; continue; } // scrolled away
+      if (y[i] < -30 || y[i] > h + 30) { buck[i] = 255; continue; } // outside the canvas
       let o = op[i];
       if (near) {
         const dx = x[i] - near.x, dy = y[i] - near.y, d2 = dx * dx + dy * dy;
@@ -510,7 +508,7 @@ export class Runner {
     this.raf = raf;
     this.flock = null;
     this.style = { color: '#888', alpha: 1, width: 1.25 };
-    this.dpr = 1; this.w = 1; this.h = 1; this.view = 0;
+    this.dpr = 1; this.w = 1; this.h = 1; this.dirty = true;
     this.target = 120; this.frames = 0; this.accum = 0; this.last = 0;
     this.still = false; this.running = false; this.onstats = null;
   }
@@ -530,14 +528,12 @@ export class Runner {
       case 'resize':
         this.dpr = m.dpr; this.w = m.w; this.h = m.h;
         this.canvas.width = Math.round(m.w * m.dpr); this.canvas.height = Math.round(m.h * m.dpr);
-        f?.resize(m.w, m.h); if (this.still) this.draw();
+        f?.resize(m.w, m.h); this.dirty = true; if (this.still) this.draw();
         break;
-      case 'style': Object.assign(this.style, m.style); if (this.still) this.draw(); break;
+      case 'style': Object.assign(this.style, m.style); this.dirty = true; if (this.still) this.draw(); break;
       case 'pointer': f?.setPointer(m.x, m.y, m.on); break;
       case 'attract': f?.attract(m.x, m.y, m.r, m.k, m.life, m.id); break;
       case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(); } break;
-      case 'view': this.view = m.y; if (this.still) this.draw(); break;
-      case 'wind': if (f) { f.wind.x += m.x; f.wind.y += m.y; } break;
       case 'gravity': if (f) { f.gravity.x = m.x; f.gravity.y = m.y; } break;
       case 'home': f?.setHome(m.points, m.aspect, m.box); if (this.still) this.settle(); break;
       case 'home-box': f?.moveHome(m.box); if (this.still) this.settle(240); break;
@@ -564,8 +560,9 @@ export class Runner {
     if (!this.running) return;
     const dt = this.last ? Math.min(0.1, (now - this.last) / 1000) : STEP;
     this.last = now;
-    this.flock.advance(dt);
-    this.draw();
+    // The simulation ticks at 60 Hz; a 120 Hz display would otherwise redraw
+    // identical frames between steps. Only draw when something moved.
+    if (this.flock.advance(dt) || this.dirty) { this.draw(); this.dirty = false; }
     // Adaptive density: average the last 90 frames.
     this.accum += dt; this.frames++;
     if (this.frames === 90) {
@@ -580,6 +577,6 @@ export class Runner {
   };
 
   draw() {
-    this.flock.render(this.ctx, { ...this.style, dpr: this.dpr, w: this.w, h: this.h, view: this.view });
+    this.flock.render(this.ctx, { ...this.style, dpr: this.dpr, w: this.w, h: this.h });
   }
 }

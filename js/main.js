@@ -68,6 +68,8 @@ darkMQ.addEventListener('change', pushStyle);
  * 2. The flock
  * ------------------------------------------------------------------------- */
 let canvas = $('#flock');
+const hero = $('.hero');
+const worldH = () => hero.offsetHeight; // the flock's world: the hero viewport
 const dpr = () => {
   const d = Math.min(2, devicePixelRatio || 1);
   // Cap the backing store around 6.5 MPx: a 4.5K viewport renders at ~1.5x
@@ -86,7 +88,8 @@ function flockStyle() { return { color: flockColor(isDark(), hue) }; }
 function pushStyle(extra) { post?.({ type: 'style', style: { ...flockStyle(), ...extra } }); }
 
 function initMessage() {
-  return { type: 'init', dpr: dpr(), w: vw(), h: vh(), count: TARGET, seed, still: STILL, season, params: {} };
+  canvas.style.height = worldH() + 'px';
+  return { type: 'init', dpr: dpr(), w: vw(), h: worldH(), count: TARGET, seed, still: STILL, season, params: {} };
 }
 
 let mainRunner = null; // only when the flock runs on the main thread
@@ -125,9 +128,18 @@ if (!startWorker()) startMainThread();
 let resizeRaf = 0;
 addEventListener('resize', () => {
   cancelAnimationFrame(resizeRaf);
-  resizeRaf = requestAnimationFrame(() => { post({ type: 'resize', dpr: dpr(), w: vw(), h: vh() }); sendObstacles(); sendHome(false); });
+  resizeRaf = requestAnimationFrame(() => {
+    canvas.style.height = worldH() + 'px';
+    post({ type: 'resize', dpr: dpr(), w: vw(), h: worldH() });
+    sendObstacles(); sendHome(false);
+  });
 }, { passive: true });
-document.addEventListener('visibilitychange', () => post({ type: 'visible', value: !document.hidden }));
+let heroSeen = true;
+if ('IntersectionObserver' in window) {
+  new IntersectionObserver(([en]) => { heroSeen = en.isIntersecting; post({ type: 'visible', value: heroSeen && !document.hidden }); })
+    .observe(canvas);
+}
+document.addEventListener('visibilitychange', () => post({ type: 'visible', value: heroSeen && !document.hidden }));
 
 /* ---------------------------------------------------------------------------
  * 3. What you do
@@ -142,7 +154,8 @@ function sendObstacles() {
   const wide = vw() >= 700;
   const rects = obstacles.filter(el => wide || !el.dataset.obstacleWide)
     .map(el => el.getBoundingClientRect())
-    .map(r => ({ x: r.left, y: r.top + scrollY, w: r.width, h: r.height }));
+    .map(r => ({ x: r.left, y: r.top + scrollY, w: r.width, h: r.height }))
+    .filter(r => r.y < worldH()); // outside the flock's world, no bird will meet it
   post({ type: 'obstacles', rects });
 }
 sendObstacles();
@@ -190,13 +203,6 @@ function onTilt(e) {
   post({ type: 'gravity', x: gx, y: gy });
 }
 
-// Scroll: the birds are anchored to the page; only the viewport moves.
-let scrollRaf = 0;
-addEventListener('scroll', () => {
-  if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; post({ type: 'view', y: scrollY }); });
-}, { passive: true });
-post({ type: 'view', y: scrollY });
-
 // Hover a link and the nearest few boids break off to trace its underline.
 if (finePointer.matches) {
   document.addEventListener('pointerover', e => {
@@ -204,7 +210,8 @@ if (finePointer.matches) {
     if (!a || a.closest('dialog')) return;
     const range = document.createRange(); range.selectNodeContents(a);
     const t = range.getBoundingClientRect();
-    post({ type: 'trace', x0: t.left, y0: t.bottom + 1 + scrollY, x1: t.right, y1: t.bottom + 1 + scrollY, count: 4, dur: 0.8 });
+    const ty = t.bottom + 1 + scrollY;
+    if (ty < worldH() - 30) post({ type: 'trace', x0: t.left, y0: ty, x1: t.right, y1: ty, count: 4, dur: 0.8 });
   });
 }
 
@@ -338,18 +345,18 @@ if (finePointer.matches) {
 /* ---------------------------------------------------------------------------
  * 5. Small things
  * ------------------------------------------------------------------------- */
-// The footer arrow is drawn by a boid the first time it scrolls into view.
+// The footer arrow fades in the first time it scrolls into view. (It used to
+// be traced by a boid, but the footer is outside the flock's world now that
+// the birds live only in the hero — a fair trade for compositor scrolling.)
 const arrow = $('.site-footer .arrow');
 if (arrow && 'IntersectionObserver' in window) {
   const io = new IntersectionObserver(([en]) => {
     if (!en.isIntersecting) return;
     io.disconnect();
-    const r = arrow.getBoundingClientRect();
-    if (!STILL) post({ type: 'trace', x0: r.left - 40, y0: r.top + r.height * 0.55, x1: r.right + 8, y1: r.top + r.height * 0.55, count: 1, dur: 0.9 });
-    setTimeout(() => arrow.classList.add('drawn'), STILL ? 0 : 650);
+    arrow.classList.add('drawn');
   }, { threshold: 1 });
   io.observe(arrow);
-}
+} else arrow?.classList.add('drawn');
 
 // Console: one line, and a handle to poke at.
 console.log(

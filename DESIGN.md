@@ -21,10 +21,12 @@ sends small messages (pointer, wind, where home is). Scrolling never waits on it
   Near home the spring dominates and cruise speed drops to a few px/s, so the shape is
   legible but never still; the whole mark sways ±5 px on a slow sine. On load they start
   scattered and drift in over several seconds.
-- **The world is the page.** The simulation runs in document coordinates and the renderer
-  subtracts the scroll offset, so the birds are anchored to the page like the text is and
-  the viewport simply scrolls past them. Scrolling costs one tiny `view` message per frame —
-  no layout reads, no wind hacks.
+- **The world is the hero, and the compositor scrolls it.** The canvas is a
+  `position: absolute` element spanning the hero at the top of the page; the birds live in
+  document coordinates inside it. Scrolling is handled by the browser's compositor exactly
+  as for the text — pixel-locked, zero latency, and **zero flock work on scroll**: no
+  listener, no messages, no layout reads. When the hero is scrolled out of view an
+  IntersectionObserver pauses the whole loop.
 - **Speed is honest.** Every bird has its own top speed (0.8–1.2 × 110 px/s); fear buys at
   most a 1.5× sprint and a tracing job 1.6× — nothing ever teleports, on hover, scroll or
   otherwise. Forces are capped, so all motion is progressive.
@@ -35,7 +37,8 @@ sends small messages (pointer, wind, where home is). Scrolling never waits on it
   user agent): it sheds boids when the average frame is slower than 45 fps and regrows
   when faster than 70.
 - **Timestep:** fixed 1/60 s with an accumulator, so 30, 60 and 120 Hz screens see the same
-  behaviour. Neighbour search is a uniform grid keyed by perception radius; the hot loops
+  behaviour; frames where no step ran are not redrawn (a 120 Hz display renders 60, not
+  120). Neighbour search is a uniform grid keyed by perception radius; the hot loops
   (step and render) allocate nothing — all scratch is preallocated. The canvas backing
   store is capped near 6.5 MPx, so huge retina viewports render at ~1.5× instead of 2×.
 - **Birds, not strokes:** each boid is a baseless triangle — head at its position, two wing
@@ -89,8 +92,8 @@ years, captions, links, footer. `tnum` for numbers; `hanging-punctuation`;
 One tall page. Hero is a full viewport (`100dvh`, safe-area aware), text bottom-left, the
 flock owns the rest; the hero text recedes on scroll (scroll-driven animation). Archive
 below: numbered rows (name · medium in mono), 56 px tall, hairline rules. Footer:
-“Handcrafted by Jugal, 2013 → 2026 · previous version”. The arrow is drawn by a single
-boid the first time it scrolls into view, then the glyph fades in.
+“Handcrafted by Jugal, 2013 → 2026 · previous version”. The arrow fades in the first
+time it scrolls into view.
 
 ## Archive sheets
 
