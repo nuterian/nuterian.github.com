@@ -13,25 +13,32 @@ root.style.setProperty('--hue', hue.toFixed(1));
 
 const canvas = document.getElementById('flock');
 const runner = new Runner(canvas);
-const dpr = Math.min(2, devicePixelRatio || 1);
+const dpr = Math.min(1.5, devicePixelRatio || 1);
 const coarse = matchMedia('(pointer: coarse)').matches;
 const post = m => runner.handle(m);
-post({ type: 'init', dpr, w: innerWidth, h: innerHeight, count: coarse ? 90 : 220, still: reduce });
+// The world is the canvas's own box (style.css sizes it), not the viewport:
+// a full-viewport canvas is a layer the compositor cannot afford per frame.
+const world = () => { const r = canvas.getBoundingClientRect(); return { w: Math.max(1, Math.round(r.width)), h: Math.max(1, Math.round(r.height)) }; };
+post({ type: 'init', dpr, ...world(), count: coarse ? 90 : 220, still: reduce });
 post({ type: 'style', style: { color: flockColor(dark(), hue) } });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => post({ type: 'style', style: { color: flockColor(dark(), hue) } }));
 
 // Sample "404" into points: that's home here.
 const { points, aspect } = textPoints(document.createElement('canvas').getContext('2d'), '404', '600 150px system-ui, sans-serif', 6);
 function box() {
-  const w = innerWidth, h = innerHeight;
-  const bw = Math.min(w * 0.5, 480), bh = bw / aspect;
-  return { x: w / 2 - bw / 2, y: h * 0.36 - bh / 2, w: bw, h: bh };
+  const { w, h } = world();
+  const bw = Math.min(w * 0.62, h * 0.62 * aspect), bh = bw / aspect;
+  return { x: w / 2 - bw / 2, y: h / 2 - bh / 2, w: bw, h: bh };
 }
 post({ type: 'home', points, aspect, box: box() });
 addEventListener('resize', () => post({ type: 'home-box', box: box() }), { passive: true });
 
-addEventListener('resize', () => post({ type: 'resize', dpr, w: innerWidth, h: innerHeight }), { passive: true });
-addEventListener('pointermove', e => { if (e.pointerType !== 'touch') post({ type: 'pointer', x: e.clientX, y: e.clientY, on: true }); }, { passive: true });
+addEventListener('resize', () => post({ type: 'resize', dpr, ...world() }), { passive: true });
+addEventListener('pointermove', e => {
+  if (e.pointerType === 'touch') return;
+  const r = canvas.getBoundingClientRect();
+  post({ type: 'pointer', x: e.clientX - r.left, y: e.clientY - r.top, on: true });
+}, { passive: true });
 document.addEventListener('mouseleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
 addEventListener('pointerup', e => { if (e.pointerType === 'touch') post({ type: 'attract', x: e.clientX, y: e.clientY, r: 110, k: 1.6, life: 1.3 }); }, { passive: true });
 addEventListener('keydown', e => { if (e.key === 't') { const cur = root.dataset.theme || 'system'; const next = cur === 'system' ? 'dark' : cur === 'dark' ? 'light' : 'system'; if (next === 'system') { delete root.dataset.theme; localStorage.removeItem('theme'); } else { root.dataset.theme = next; localStorage.setItem('theme', next); } post({ type: 'style', style: { color: flockColor(dark(), hue) } }); } });

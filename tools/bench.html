@@ -1,0 +1,37 @@
+<!doctype html><meta charset="utf-8"><title>flock microbench</title>
+<canvas id="c"></canvas>
+<script type="module">
+import { Flock, GLPainter, Canvas2DPainter, MARK, MARK_ASPECT, STEP } from '../js/flock.js';
+const W = 1600, H = 1000;
+function make(n, dpr, painterKind) {
+  const c = document.createElement('canvas');
+  const painter = painterKind === 'gl' ? GLPainter.try(c) : new Canvas2DPainter(c);
+  if (!painter) return null;
+  painter.resize(W, H, dpr);
+  const f = new Flock({ width: W, height: H, count: n, seed: 7 });
+  const bw = 640, bh = bw / MARK_ASPECT;
+  f.setHome(MARK, MARK_ASPECT, { x: W/2 - bw/2, y: 260 - bh/2, w: bw, h: bh });
+  for (let i = 0; i < 400; i++) f._step(STEP);   // settle
+  return { f, painter, gl: painter.gl };
+}
+function time(label, iters, fn, sync) {
+  fn(); if (sync) sync();                         // warm
+  const t0 = performance.now();
+  for (let i = 0; i < iters; i++) fn();
+  if (sync) sync();
+  return (performance.now() - t0) / iters;
+}
+window.bench = ({ n, dpr, kind }) => {
+  const s = make(n, dpr, kind);
+  if (!s) return null;
+  const { f, painter, gl } = s;
+  const style = { color: '#3b5aa0', rgb: [0.23,0.35,0.63], alpha: 1, width: 1.25, w: W, h: H };
+  const sync = gl ? () => gl.finish() : () => {};
+  const step = time('step', 200, () => f._step(STEP));
+  const geom = time('geom', 200, () => f.geometry());
+  const drawCPU = time('drawCPU', 100, () => painter.draw(f, style));       // no sync: JS only
+  const drawGPU = time('drawGPU', 100, () => painter.draw(f, style), sync); // sync: includes GPU
+  return { n, dpr, kind, step: +step.toFixed(3), geom: +geom.toFixed(3), drawCPU: +drawCPU.toFixed(3), drawGPU: +drawGPU.toFixed(3), frame: +(step+geom+drawGPU).toFixed(3) };
+};
+window.ready = true;
+</script>

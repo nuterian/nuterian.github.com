@@ -68,14 +68,17 @@ darkMQ.addEventListener('change', pushStyle);
  * 2. The flock
  * ------------------------------------------------------------------------- */
 let canvas = $('#flock');
-const hero = $('.hero');
-const worldH = () => hero.offsetHeight; // the flock's world: the hero viewport
-const dpr = () => {
-  const d = Math.min(2, devicePixelRatio || 1);
-  // Cap the backing store around 6.5 MPx: a 4.5K viewport renders at ~1.5x
-  // instead of 2x — invisible for 1.25 px strokes, half the fill cost.
-  return Math.max(1, Math.min(d, Math.sqrt(6.5e6 / (innerWidth * innerHeight))));
-};
+// The flock's world is the canvas's own box — CSS decides where it sits
+// (see style.css), JS just reads it. Everything is canvas-local from here.
+let world = { w: 1, h: 1 };
+function measureWorld() {
+  const r = canvas.getBoundingClientRect();
+  world = { w: Math.max(1, Math.round(r.width)), h: Math.max(1, Math.round(r.height)) };
+  return world;
+}
+// 1.5x is plenty for 1.25 px strokes the shader already feathers, and it is
+// 1.8x less to composite than 2x. Nobody has ever spotted the difference.
+const dpr = () => (params.has('fdpr') ? +params.get('fdpr') : Math.min(1.5, devicePixelRatio || 1));
 const vw = () => innerWidth, vh = () => innerHeight;
 const coarse = matchMedia('(pointer: coarse)').matches;
 const TARGET = params.has('n') ? +params.get('n') : (coarse || innerWidth < 700 ? 70 : 200);
@@ -88,8 +91,8 @@ function flockStyle() { return { color: flockColor(isDark(), hue) }; }
 function pushStyle(extra) { post?.({ type: 'style', style: { ...flockStyle(), ...extra } }); }
 
 function initMessage() {
-  canvas.style.height = worldH() + 'px';
-  return { type: 'init', dpr: dpr(), w: vw(), h: worldH(), count: TARGET, seed, still: STILL, season, params: {} };
+  const { w, h } = measureWorld();
+  return { type: 'init', dpr: dpr(), w, h, count: TARGET, seed, still: STILL, season, params: {} };
 }
 
 let mainRunner = null; // only when the flock runs on the main thread
@@ -129,9 +132,9 @@ let resizeRaf = 0;
 addEventListener('resize', () => {
   cancelAnimationFrame(resizeRaf);
   resizeRaf = requestAnimationFrame(() => {
-    canvas.style.height = worldH() + 'px';
-    post({ type: 'resize', dpr: dpr(), w: vw(), h: worldH() });
-    sendObstacles(); sendHome(false);
+    const { w, h } = measureWorld();
+    post({ type: 'resize', dpr: dpr(), w, h });
+    sendHome(false);
   });
 }, { passive: true });
 let heroSeen = true;
@@ -144,22 +147,6 @@ document.addEventListener('visibilitychange', () => post({ type: 'visible', valu
 /* ---------------------------------------------------------------------------
  * 3. What you do
  * ------------------------------------------------------------------------- */
-// The flock respects the text: rectangles it steers around, in viewport space.
-const obstacles = $$('[data-obstacle]');
-function sendObstacles() {
-  if (current) { // a sheet is open (fixed position): it is the only obstacle
-    const r = sheet.getBoundingClientRect();
-    return post({ type: 'obstacles', rects: [{ x: r.left, y: r.top + scrollY, w: r.width, h: r.height + 100 }] });
-  }
-  const wide = vw() >= 700;
-  const rects = obstacles.filter(el => wide || !el.dataset.obstacleWide)
-    .map(el => el.getBoundingClientRect())
-    .map(r => ({ x: r.left, y: r.top + scrollY, w: r.width, h: r.height }))
-    .filter(r => r.y < worldH()); // outside the flock's world, no bird will meet it
-  post({ type: 'obstacles', rects });
-}
-sendObstacles();
-
 // Pointer: mouse/pen repel, in document coordinates, at most once per frame.
 let pointerRaf = 0, px = 0, py = 0;
 addEventListener('pointermove', e => {
@@ -167,7 +154,8 @@ addEventListener('pointermove', e => {
   px = e.clientX; py = e.clientY;
   if (!pointerRaf) pointerRaf = requestAnimationFrame(() => {
     pointerRaf = 0;
-    post({ type: 'pointer', x: px, y: py + scrollY, on: true });
+    const r = canvas.getBoundingClientRect();   // pointer in canvas-local px
+    post({ type: 'pointer', x: px - r.left, y: py - r.top, on: true });
     if (preview.classList.contains('on')) movePreview(px, py);
   });
 }, { passive: true });
@@ -181,7 +169,8 @@ addEventListener('pointerup', e => {
   if (e.pointerType !== 'touch' || !tapStart) return;
   const moved = Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y);
   if (moved < 12 && performance.now() - tapStart.t < 400) {
-    post({ type: 'attract', id: 'tap', x: e.clientX, y: e.clientY + scrollY, r: 110, k: 1.6, life: 1.3 });
+    const r = canvas.getBoundingClientRect();
+    post({ type: 'attract', id: 'tap', x: e.clientX - r.left, y: e.clientY - r.top, r: 110, k: 1.6, life: 1.3 });
     requestTilt();
   }
   tapStart = null;
@@ -203,30 +192,17 @@ function onTilt(e) {
   post({ type: 'gravity', x: gx, y: gy });
 }
 
-// Hover a link and the nearest few boids break off to trace its underline.
-if (finePointer.matches) {
-  document.addEventListener('pointerover', e => {
-    const a = e.target.closest('a:not(.row)');
-    if (!a || a.closest('dialog')) return;
-    const range = document.createRange(); range.selectNodeContents(a);
-    const t = range.getBoundingClientRect();
-    const ty = t.bottom + 1 + scrollY;
-    if (ty < worldH() - 30) post({ type: 'trace', x0: t.left, y0: ty, x1: t.right, y1: ty, count: 4, dur: 0.8 });
-  });
-}
-
-// Home: the 2013 jm mark, anchored to the page, optically centred in the
-// space the hero leaves above its text.
-let markCx = 0.5, markCy = 0.5; // centroid of the point cloud, in box fractions
+// Home: the 2013 jm mark, centred in the canvas by the point cloud's centroid
+// (not its bounding box) so it sits optically centred. The margin around it is
+// the room the flock has to scatter into.
+let markCx = 0.5, markCy = 0.5;
 { let sx = 0, sy = 0; for (let i = 0; i < MARK.length; i += 2) { sx += MARK[i]; sy += MARK[i + 1]; }
   markCx = sx / (MARK.length / 2) / 100; markCy = sy / (MARK.length / 2) / 100; }
 function homeBox() {
-  const w = vw();
-  const bw = w < 700 ? w * 0.8 : Math.min(w * 0.48, 640);
+  const { w, h } = world;
+  const bw = Math.min(w * 0.66, h * 0.66 * MARK_ASPECT);
   const bh = bw / MARK_ASPECT;
-  const textTop = $('.hero-text').getBoundingClientRect().top + scrollY;
-  const cy = Math.max(bh / 2 + 32, textTop * 0.48);
-  return { x: w / 2 - bw * markCx, y: cy - bh * markCy, w: bw, h: bh };
+  return { x: w / 2 - bw * markCx, y: h / 2 - bh * markCy, w: bw, h: bh };
 }
 function sendHome(full = true) {
   post(full ? { type: 'home', points: MARK, aspect: MARK_ASPECT, box: homeBox() } : { type: 'home-box', box: homeBox() });
@@ -250,18 +226,10 @@ function openSheet(slug, { push = true } = {}) {
     root.classList.add('sheet-open');
     sheet.scrollTop = 0;
     current = slug;
-    // A few birds settle on the sheet's top edge, like a wire.
-    // Measure once the entrance animation has settled, not mid-flight.
-    Promise.all(sheet.getAnimations().map(a => a.finished)).catch(() => {}).then(() => {
-      if (current !== slug) return;
-      const r = sheet.getBoundingClientRect();
-      if (r.top > 12) post({ type: 'perch', segment: { x0: r.left + 16, y0: r.top - 3, x1: r.right - 16, y1: r.top - 3 } });
-      sendObstacles();
-    });
   };
   if (push) history.pushState({ slug }, '', `#${slug}`);
   go();
-  // The flock dims and slows while you read, and keeps to the margins.
+  // The flock dims and slows while you read.
   post({ type: 'tempo', value: 0.35 }); pushStyle({ alpha: 0.8 });
   preview.classList.remove('on');
   $('#sheet-prev').disabled = slugs.indexOf(slug) === 0;
@@ -274,9 +242,10 @@ function putBack(slug) {
 function closeSheet({ back = true } = {}) {
   if (!current) return;
   const slug = current; current = null;
-  vt(() => { if (sheet.open) sheet.close(); putBack(slug); root.classList.remove('sheet-open'); });
-  post({ type: 'tempo', value: 1 }); pushStyle({ alpha: 1 }); post({ type: 'perch', segment: null });
-  requestAnimationFrame(sendObstacles);
+  if (sheet.open) sheet.close();
+  putBack(slug);
+  root.classList.remove('sheet-open');
+  post({ type: 'tempo', value: 1 }); pushStyle({ alpha: 1 });
   if (back && history.state?.slug) history.back();
   else if (back) history.replaceState(null, '', '#archive');
   opener?.focus({ preventScroll: true });

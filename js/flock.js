@@ -19,12 +19,18 @@
  * back. Modes: 'home' (default), 'snow' (December only — the first commit on
  * this site after the 2013 reset was "Add snow").
  *
- * Units: CSS pixels and seconds, in DOCUMENT coordinates. The canvas is an
- * absolute element at the top of the page, so the browser's compositor
- * scrolls it with the text — scrolling costs the flock nothing at all.
- * The simulation advances with a fixed timestep so it behaves identically
- * at 30, 60 or 120 Hz; frames without a step are not redrawn; and the hot
- * loops allocate nothing.
+ * Units: CSS pixels and seconds, in CANVAS-LOCAL coordinates. The canvas is
+ * a small absolute element covering only the region the birds occupy — not
+ * the viewport. That is the whole performance story: a full-viewport canvas
+ * is a ~35 MB layer the compositor re-uploads every frame (~2 GB/s) to draw
+ * a handful of chevrons; this one is ~6 MB. Being absolute, it also scrolls
+ * on the compositor with the text, so scrolling costs the flock nothing.
+ *
+ * The simulation advances with a fixed timestep so it behaves identically at
+ * 30, 60 or 120 Hz; frames without a step are not redrawn; the hot loops
+ * allocate nothing; and a whole frame (simulate + geometry + draw + GPU
+ * sync) costs ~0.04 ms at 200 birds. Compute has never been the cost here,
+ * so there is no adaptive density: what you ask for is what you get.
  */
 
 import { MARK, MARK_ASPECT } from './mark.js';
@@ -128,10 +134,7 @@ export class Flock {
     this.mode = 'home';
     this.pointer = { x: -1e4, y: -1e4, on: false, speed: 0 };
     this.attractors = [];   // {x, y, r, k, until}
-    this.obstacles = [];    // {x, y, w, h} soft — the flock avoids the text
     this.gravity = { x: 0, y: 0 }; // from device tilt
-    this.perches = null;    // {x0,y0,x1,y1} — a wire to sit on
-    this.traces = [];       // {i, x0,y0,x1,y1, t0, dur}
     this.home = null;       // {points, aspect, box:{x,y,w,h}} — where the flock belongs
     this.tempo = 1;         // global speed multiplier (dims when a sheet is open)
     this.setCount(opts.count || 120);
@@ -155,8 +158,6 @@ export class Flock {
     this.fp = grow(this.fp, () => this.random() * Math.PI * 2);   // wingbeat phase
     this.scare = grow(this.scare, () => 0);                        // seconds of fright left
     this.vmax = grow(this.vmax, () => (0.8 + 0.4 * this.random()) * this.p.maxSpeed); // birds differ
-    const role = new Uint8Array(n); if (this.role) role.set(this.role.subarray(0, Math.min(old, n)));
-    this.role = role; // 0 free, 1 perching, 2 tracing
     this.fx = new Float32Array(n);
     this.fy = new Float32Array(n);
     this._next = new Int32Array(n);        // spatial-hash chains (reused every step)
@@ -207,36 +208,6 @@ export class Flock {
 
   season(name) { // 'snow' | null
     this.mode = name === 'snow' ? 'snow' : 'home';
-  }
-
-  perch(segment) { // {x0,y0,x1,y1} or null
-    this.perches = segment;
-    for (let i = 0; i < this.n; i++) if (this.role[i] === 1) this.role[i] = 0;
-    if (!segment) return;
-    // A dozen birds on the wire, spaced with a little irregularity.
-    const k = Math.min(14, this.n >> 3);
-    const picked = new Set();
-    while (picked.size < k) picked.add((this.random() * this.n) | 0);
-    this.perchSlots = [];
-    let j = 0;
-    for (const i of picked) {
-      this.role[i] = 1;
-      this.perchSlots.push({ i, t: (j + 0.5) / k + (this.random() - 0.5) * 0.4 / k });
-      j++;
-    }
-  }
-
-  // Send a few boids along a segment (a link's underline, the footer arrow).
-  trace(x0, y0, x1, y1, count = 5, dur = 0.9) {
-    // The nearest free boids go, and the tracing clock starts when they arrive.
-    const near = [];
-    for (let i = 0; i < this.n; i++) if (!this.role[i]) near.push([Math.hypot(this.x[i] - x0, this.y[i] - y0), i]);
-    near.sort((a, b) => a[0] - b[0]);
-    for (let k = 0; k < Math.min(count, near.length); k++) {
-      const [d, i] = near[k];
-      this.role[i] = 2;
-      this.traces.push({ i, x0, y0, x1, y1, t0: this.time + d / 300 + k * 0.06, dur });
-    }
   }
 
   // --- Simulation -----------------------------------------------------------
@@ -372,75 +343,35 @@ export class Flock {
           Fy += dy / d * 140 * a.k * s + (dx / d) * 30 * a.k * (1 - s);
         }
       }
-      // Obstacles: the flock respects the text.
-      for (const o of this.obstacles) {
-        const m = 28;
-        if (xi > o.x - m && xi < o.x + o.w + m && yi > o.y - m && yi < o.y + o.h + m) {
-          const lx = xi - (o.x - m), rx = (o.x + o.w + m) - xi, ty = yi - (o.y - m), by = (o.y + o.h + m) - yi;
-          const mn = Math.min(lx, rx, ty, by);
-          const push = 220 * Math.max(0.3, 1 - mn / (m + 8)); // never pulls inward, even deep inside
-          if (mn === lx) Fx -= push; else if (mn === rx) Fx += push; else if (mn === ty) Fy -= push; else Fy += push;
-        }
-      }
-      // Edges: turn back softly, never bounce. (Birds on a job — perching,
-      // tracing — are steered directly and may leave the world box.)
+      // Edges: turn back softly, never bounce.
       const e = p.edge;
-      if (!this.role[i]) {
-        if (xi < e) Fx += (e - xi) / e * 160; else if (xi > this.w - e) Fx -= (xi - (this.w - e)) / e * 160;
-        if (yi < e) Fy += (e - yi) / e * 160; else if (yi > this.h - e) Fy -= (yi - (this.h - e)) / e * 160;
-      }
+      if (xi < e) Fx += (e - xi) / e * 160; else if (xi > this.w - e) Fx -= (xi - (this.w - e)) / e * 160;
+      if (yi < e) Fy += (e - yi) / e * 160; else if (yi > this.h - e) Fy -= (yi - (this.h - e)) / e * 160;
 
       // Weather.
       Fx += this.gravity.x; Fy += this.gravity.y;
       if (mode === 'snow') { Fy += 26; Fx += Math.sin(t * 1.4 + ph) * 18; }
 
-      // Role overrides: perching and tracing.
-      if (this.role[i] === 1 && this.perches) {
-        const s = this.perchSlots.find(q => q.i === i) || { t: 0.5 };
-        const tx = this.perches.x0 + (this.perches.x1 - this.perches.x0) * s.t;
-        const ty = this.perches.y0 + (this.perches.y1 - this.perches.y0) * s.t;
-        const dx = tx - xi, dy = ty - yi, d = Math.sqrt(dx * dx + dy * dy) || 1e-3;
-        const speed = Math.min(d * 2.5, 200);
-        Fx = (dx / d * speed - vx[i]) * 5; Fy = (dy / d * speed - vy[i]) * 5;
-        if (d < 1.5) { Fx -= vx[i] * 14; Fy -= vy[i] * 14 - Math.sin(t * 3 + ph) * 2; }
-      }
-
       // Clamp steering.
       const fm = Math.sqrt(Fx * Fx + Fy * Fy);
-      const cap = this.role[i] ? 1400 : maxF * 4;
+      const cap = maxF * 4;
       if (fm > cap) { Fx *= cap / fm; Fy *= cap / fm; }
       fx[i] = Fx; fy[i] = Fy;
     }
 
-    // Traces run on their own clock.
-    for (let k = this.traces.length - 1; k >= 0; k--) {
-      const tr = this.traces[k];
-      const u = (t - tr.t0) / tr.dur;
-      if (u > 1.15) { this.role[tr.i] = 0; this.traces.splice(k, 1); continue; }
-      // Before the clock starts, fly to the start; then ease along; then overshoot off the end.
-      const e = u < 0 ? 0 : u < 1 ? u * u * (3 - 2 * u) : 1 + (u - 1) * 1.5;
-      const tx = tr.x0 + (tr.x1 - tr.x0) * e, ty = tr.y0 + (tr.y1 - tr.y0) * e + Math.sin(u * 9 + tr.i) * 1.2;
-      const i = tr.i, dx = tx - x[i], dy = ty - y[i], d = Math.sqrt(dx * dx + dy * dy) || 1e-3;
-      const speed = Math.min(d * 6, 380);
-      fx[i] = (dx / d * speed - vx[i]) * 6; fy[i] = (dy / d * speed - vy[i]) * 6;
-    }
-
     // Integrate. Every bird has its own top speed (vmax); fear buys a short
-    // sprint, a job (tracing) a slightly longer one — but nobody teleports.
+    // sprint — but nobody teleports.
     const tempo = this.tempo;
     for (let i = 0; i < n; i++) {
       vx[i] += fx[i] * dt; vy[i] += fy[i] * dt;
       let sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
-      const cap = this.vmax[i] * (this.role[i] === 2 ? 1.6 : 1 + Math.min(0.5, this.scare[i] * 0.25));
+      const cap = this.vmax[i] * (1 + Math.min(0.5, this.scare[i] * 0.25));
       if (sp > cap) { vx[i] *= cap / sp; vy[i] *= cap / sp; sp = cap; }
-      const tp = this.role[i] ? 1 : tempo; // birds with a job aren't slowed by the mood
-      x[i] += vx[i] * dt * tp; y[i] += vy[i] * dt * tp;
+      x[i] += vx[i] * dt * tempo; y[i] += vy[i] * dt * tempo;
       // Snow wraps; everything else is kept inside by the edge force.
       if (mode === 'snow' && y[i] > this.h + 8) { y[i] = -8; x[i] = this.random() * this.w; }
-      if (!this.role[i]) {
-        if (x[i] < -20) x[i] = -20; else if (x[i] > this.w + 20) x[i] = this.w + 20;
-        if (y[i] < -20) y[i] = -20; else if (y[i] > this.h + 20 && mode !== 'snow') y[i] = this.h + 20;
-      }
+      if (x[i] < -20) x[i] = -20; else if (x[i] > this.w + 20) x[i] = this.w + 20;
+      if (y[i] < -20) y[i] = -20; else if (y[i] > this.h + 20 && mode !== 'snow') y[i] = this.h + 20;
     }
 
     // Housekeeping.
@@ -468,9 +399,7 @@ export class Flock {
       const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
       let ux = sp > 0.01 ? vx[i] / sp : Math.cos(this.ph[i]);
       let uy = sp > 0.01 ? vy[i] / sp : Math.sin(this.ph[i]);
-      let spd = sp, phase = fp[i];
-      if (this.role[i] === 1 && sp < 6) { ux = 0; uy = -1; spd = 0; phase = this.ph[i]; } // perched: facing up, wings folded
-      const [lx, ly, rx, ry] = wingTips(ux, uy, spd, phase);
+      const [lx, ly, rx, ry] = wingTips(ux, uy, sp, fp[i]);
       tips[i * 4] = lx; tips[i * 4 + 1] = ly; tips[i * 4 + 2] = rx; tips[i * 4 + 3] = ry;
     }
   }
@@ -637,8 +566,6 @@ export class Canvas2DPainter {
 
 /*
  * Runner: owns a canvas (Offscreen or not), a Flock, and the frame loop.
- * Adapts the flock size to measured frame time rather than guessing from the
- * user agent: a slow phone gets fewer boids, a fast desktop gets the full count.
  */
 export class Runner {
   constructor(canvas, { raf = globalThis.requestAnimationFrame.bind(globalThis) } = {}) {
@@ -648,7 +575,7 @@ export class Runner {
     this.flock = null;
     this.style = { color: '#888', rgb: [0.5, 0.5, 0.5], alpha: 1, width: 1.25 };
     this.dpr = 1; this.w = 1; this.h = 1; this.dirty = true;
-    this.target = 120; this.frames = 0; this.accum = 0; this.last = 0;
+    this.frames = 0; this.accum = 0; this.last = 0;
     this.still = false; this.running = false; this.onstats = null;
   }
 
@@ -664,7 +591,7 @@ export class Runner {
     const f = this.flock;
     switch (m.type) {
       case 'init': {
-        this.dpr = m.dpr; this.w = m.w; this.h = m.h; this.target = m.count; this.still = !!m.still;
+        this.dpr = m.dpr; this.w = m.w; this.h = m.h; this.still = !!m.still;
         this.painter.resize(m.w, m.h, m.dpr);
         this.flock = new Flock({ width: m.w, height: m.h, count: m.count, seed: m.seed, params: m.params });
         if (m.season) this.flock.season(m.season);
@@ -680,15 +607,12 @@ export class Runner {
       case 'style': this._style(m.style); this.dirty = true; if (this.still) this.draw(); break;
       case 'pointer': f?.setPointer(m.x, m.y, m.on); break;
       case 'attract': f?.attract(m.x, m.y, m.r, m.k, m.life, m.id); break;
-      case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(); } break;
       case 'gravity': if (f) { f.gravity.x = m.x; f.gravity.y = m.y; } break;
       case 'home': f?.setHome(m.points, m.aspect, m.box); if (this.still) this.settle(); break;
       case 'home-box': f?.moveHome(m.box); if (this.still) this.settle(240); break;
       case 'home-off': f?.clearHome(); break;
-      case 'perch': f?.perch(m.segment); break;
-      case 'trace': f?.trace(m.x0, m.y0, m.x1, m.y1, m.count, m.dur); break;
       case 'tempo': if (f) f.tempo = m.value; break;
-      case 'count': this.target = m.value; f?.setCount(m.value); break;
+      case 'count': f?.setCount(m.value); break;
       case 'params': if (f) Object.assign(f.p, m.params); break;
       case 'season': f?.season(m.season); break;
       case 'visible': m.value ? this.start() : this.stop(); break;
@@ -710,15 +634,11 @@ export class Runner {
     // The simulation ticks at 60 Hz; a 120 Hz display would otherwise redraw
     // identical frames between steps. Only draw when something moved.
     if (this.flock.advance(dt) || this.dirty) { this.draw(); this.dirty = false; }
-    // Adaptive density: average the last 90 frames.
+    // Report frame rate once a second; the flock's size is never changed
+    // behind your back (a frame costs ~0.04 ms — there is nothing to adapt).
     this.accum += dt; this.frames++;
-    if (this.frames === 90) {
-      const avg = this.accum / this.frames;
-      const n = this.flock.n;
-      const floor = Math.max(48, Math.round(this.target * 0.6));
-      if (avg > 1 / 45 && n > floor) this.flock.setCount(Math.max(floor, Math.round(n * 0.8)));
-      else if (avg < 1 / 70 && n < this.target) this.flock.setCount(Math.min(this.target, Math.round(n * 1.15)));
-      this.onstats?.({ fps: 1 / avg, n: this.flock.n, renderer: this.painter.name });
+    if (this.frames === 60) {
+      this.onstats?.({ fps: this.frames / this.accum, n: this.flock.n, renderer: this.painter.name });
       this.frames = 0; this.accum = 0;
     }
     this.raf(this.tick);
