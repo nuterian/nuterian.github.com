@@ -120,6 +120,44 @@ fallback. The main thread only sends small messages (pointer, where home is).
   seed, where, snapshot()), `?n=` `?seed=` `?still` `?hue=` `?season=snow` `?mainthread`.
   One console line.
 
+## Flight
+
+Where the flock *goes* — separation, alignment, cohesion, the mark, the ring — is one
+question. What a bird does with its **body** on the way is another, and for a long time
+nobody asked it: the heading was read straight off the velocity vector and the wingbeat
+phase was set once at birth and never touched again. So nothing ever flapped, and a bird
+hovering on the mark at 8 px/s — whose velocity direction swings through the whole circle
+on force noise alone — span at up to **10 744 °/s**. Thirty rotations a second reads as a
+twitching tick mark, not a bird.
+
+- **Attitude is state.** The heading turns *toward* the velocity at a limited rate, and the
+  limit tightens with speed, because a turn is flown with bank and ω = g·tanφ/v: you cannot
+  carve a tight one at a sprint. Below `headingSpeed` the velocity direction is barely
+  believed at all, so a settled bird holds its heading and only looks slowly around, each at
+  its own rate — which also stops the mark setting into a hatch of identically-aligned
+  strokes. Measured peak is now **278 °/s**, and nothing exceeds 400.
+- **One size.** The half-span at full spread is one number for every bird at every speed.
+  It used to scale with velocity, so a sprinting bird was 2.3× the length of a resting one
+  and the flock appeared to inflate and deflate as it moved. What changes now is the *pose*,
+  not the scale: seen from above, a wing is foreshortened at the top and bottom of its
+  stroke and fully spread through the middle, so every bird passes through the same full
+  span every beat.
+- **One phase, four gaits.** There is no state machine and nothing to sequence. The beat
+  phase always advances; the gait changes only its **depth** and its **rate**, through three
+  exponentially-smoothed scalars — `drive` (how hard it is working), `brake` (thrust
+  pointing backwards: the flare, wings forward and spread) and `bank`. Every transition is
+  therefore a blend by construction, and a bird powering out of a glide picks the stroke up
+  wherever the wing happened to be. The four gaits you can see in
+  `tools/out/wingbeat.png` — a quick shallow flutter holding station on the mark, a deep
+  full-power beat fleeing the pointer, a held glide out on a lap, and the flare coming
+  home — are all the same six lines of arithmetic at different values.
+- **Flap-flap-glide falls out.** `drive` subtracts the stretches where a bird is fast and
+  asking nothing of the air, so a roamer flaps through the turns of its ring and glides the
+  straights without anything telling it to. Thrust alone was not enough to drive this: the
+  simulation has no drag, so a bird already at escape speed demands no force at all, and
+  startled birds came out *gliding* — exactly backwards. Hence a baseline per state, with
+  the smoothing turning what would be a switch into a ramp.
+
 ## What actually costs
 
 Measured, after several wrong guesses. A whole frame — simulate 200 birds, build geometry,
@@ -139,7 +177,18 @@ Compute is never the cost. The costs that were real, in the order we found them:
    for 1.25 px shader-feathered strokes), and the canvas draws only when a sim step ran.
 4. **Adaptive density was the disease, not the cure**: it read a depressed frame rate and
    thinned the mark. Gone — the count you ask for is the count you get.
-5. **A hover that animated `padding-left`**: the archive row nudged its content right by
+5. **The fixed timestep beating against vsync.** The simulation ticks at exactly 60 Hz and
+   so does the display — but rAF timestamps carry sub-millisecond noise, and a plain
+   accumulator turns that noise into an alternating beat. Replaying 479 real rAF deltas
+   captured from a 60 Hz screen through `advance()`: only **49.5 %** of frames took one
+   step. 25.3 % took two — the flock lurching twice as far — and 25.3 % took **none**, and
+   a frame with no step is a frame the Runner never redraws at all. Half the frames wrong,
+   in alternation, is precisely what reads as judder, and no amount of headroom fixes it:
+   a whole frame costs 0.047 ms, 0.28 % of the budget. The fix is four lines — a delta
+   already within 12 % of a whole number of steps simply *is* that many steps, with 120 Hz
+   and genuinely slow frames still falling through to the accumulator. Now 100 % of frames
+   take exactly one. `tools/flight.mjs` keeps it that way.
+6. **A hover that animated `padding-left`**: the archive row nudged its content right by
    animating padding, which re-solved the row's four-column grid on every frame of the
    450 ms — the last layout work in a page that otherwise never reflows after load.
    Measured with Chrome's own `LayoutCount`: 43 layouts per hover in-and-out, against 2
@@ -147,7 +196,9 @@ Compute is never the cost. The costs that were real, in the order we found them:
 
 Instruments in `tools/`: `fps.mjs` (achieved flock frame rate — the number that matters;
 main-thread rAF deltas are vsync-pinned and cannot see any of this), `bench.html`
-(per-operation microbench with GPU sync), `perf.mjs` (journey long-task benchmark).
+(per-operation microbench with GPU sync), `perf.mjs` (journey long-task benchmark),
+`flight.mjs` (turn rate, one size, the beat actually advancing, one step per frame — plus
+`out/wingbeat.png`, a filmstrip, because a wingbeat is motion and no screenshot shows one).
 
 ## Colour
 

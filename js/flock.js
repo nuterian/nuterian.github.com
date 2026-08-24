@@ -23,6 +23,13 @@
  *             per bird — and even a settled flock sheds the odd restless bird
  *             into a lap, so the idle state is never everyone at once.
  *
+ * Where the flock GOES is one question; what a bird does with its body on the
+ * way is another, and has its own section (“Flight”, in _step): the heading is
+ * state that turns at a limited rate, not a reading off the velocity, and the
+ * wingbeat is one always-advancing phase whose depth and rate the gait
+ * modulates — so hover, flap, glide and flare are blends of the same three
+ * smoothed numbers, never a switch. See DESIGN.md “Flight”.
+ *
  * THE MARK LIVES IN WHITESPACE. Its size is fixed, but its place is not:
  * a small placement solver (`_placeHome`) finds the best spot for the mark
  * box in the current viewport — least overlap with content, on-canvas, with
@@ -53,6 +60,7 @@ export { MARK, MARK_ASPECT };
 
 export const STEP = 1 / 60;            // fixed simulation step
 const MAX_STEPS = 4;                   // per frame, before we drop time instead
+const TAU = Math.PI * 2, PI = Math.PI, DEG = Math.PI / 180;
 
 // Tunables. These are the "feel" — change with care and with a screenshot.
 export const DEFAULTS = {
@@ -84,6 +92,17 @@ export const DEFAULTS = {
                         // permanent queue even though no single bird is stuck. The
                         // fix for that is not a stronger field, it's a weaker one:
                         // letting birds actually cross is the point (see header).
+  // --- Flight: what a bird does with its body, as opposed to where it goes ---
+  turnRate: 330,      // °/s — fastest it may swing its heading, when slow
+  turnRateFast: 150,  // °/s — …and at top speed: a turn is flown with bank and
+                      //       ω = g·tanφ/v, so speed costs you the tight ones
+  headingSpeed: 30,   // px/s — below this the velocity direction is mostly noise
+                      //        (hovering on the mark is 8 px/s): hold, don't chase
+  wing: 5.2,          // px — HALF-SPAN at full spread. One number, every bird, every
+                      //      speed. Only the beat itself foreshortens it.
+  beatSlow: 2.6,      // Hz — wingbeat held in a glide
+  beatFast: 9.0,      // Hz — …and under full power
+  bank: 0.22,         // 0–1 — span a fully banked bird loses, seen from above
   fieldSwirl: 0.18,    // 0–1 — how much of the push is redirected to curve past corners
                       // (kept LOW: a strong tangential term is a curl field, and a
                       // curl field can trap a bird in a stable orbit around an
@@ -136,27 +155,31 @@ export function textPoints(ctx2d, text, font, pitch = 6) {
 
 
 /*
- * A boid is a baseless triangle: head at its position, two wing arms swept
- * back from the heading. The wingbeat is procedural — phase advances with
- * speed (see _step) — and shows up two ways, as seen from above:
- *   sweep: the arms beat fore/aft around their resting angle;
- *   foreshortening: at the stroke's extremes the wing is out of plane, so
- *   the arm draws shorter, and mid-stroke it is fully spread.
- * At rest the beat is a slow flutter; fleeing, it is fast and deep.
- * Returns [leftTipX, leftTipY, rightTipX, rightTipY].
+ * A boid is a baseless triangle: head at its position, two arms swept from the
+ * heading. Seen from above a wingbeat is two things at once — the arm beating
+ * fore/aft about its rest angle, and foreshortening, because the wing is out of
+ * plane at the ends of the stroke and fully spread through the middle. A bank
+ * foreshortens both arms together. `len`, the half-span at full spread, is one
+ * number for every bird at every speed.
+ *
+ *   phase  the beat, always advancing; the gait changes its depth, not it
+ *   drive  0…1  stroke depth: 0 a held glide, 1 full power
+ *   brake  0…1  the flare — wings forward and spread, stopping
+ *   bank  -1…1  roll into the turn
+ * Writes [leftX, leftY, rightX, rightY] into out[o…o+3]; allocates nothing.
  */
-export function wingTips(ux, uy, sp, phase) {
-  const len = 4.4 + Math.min(sp * 0.05, 4.6);
-  const amp = Math.min(1, 0.55 + sp / 150);   // clearly beating even at rest
-  // Skewed waveform: the downstroke is quicker than the upstroke.
-  const flap = Math.sin(phase + 0.45 * Math.sin(phase));
-  const sweep = 2.3 - flap * 0.42 * amp;                // 108°–156° off the heading
-  const wl = len * (1 - 0.22 * amp * flap * flap);      // slight foreshorten at the extremes
-  const cs = Math.cos(sweep), sn = Math.sin(sweep);
-  return [
-    (ux * cs - uy * sn) * wl, (ux * sn + uy * cs) * wl,
-    (ux * cs + uy * sn) * wl, (-ux * sn + uy * cs) * wl,
-  ];
+export function wingPose(ux, uy, phase, drive, brake, bank, len, bankDepth, out, o) {
+  // Skewed waveform: the downstroke is quicker than the recovery upstroke.
+  const beat = Math.sin(phase + 0.45 * Math.sin(phase));
+  const amp = 0.16 + 0.84 * drive;
+  // Where the arms rest: back in a glide, squarer under power, thrown forward in
+  // a flare — 109°–155° off the heading under power, the silhouette this site has
+  // always had. One number moving, so the bird reshapes rather than changes costume.
+  const sweep = 2.52 - 0.22 * drive - 0.62 * brake - beat * 0.40 * amp;
+  const span = len * (1 - 0.34 * amp * beat * beat) * (1 - bankDepth * bank * bank);
+  const cs = Math.cos(sweep) * span, sn = Math.sin(sweep) * span;
+  out[o] = ux * cs - uy * sn;      out[o + 1] = ux * sn + uy * cs;
+  out[o + 2] = ux * cs + uy * sn;  out[o + 3] = -ux * sn + uy * cs;
 }
 
 export class Flock {
@@ -195,7 +218,15 @@ export class Flock {
     this.vy = grow(this.vy, () => (this.random() - 0.5) * this.p.cruise);
     this.ph = grow(this.ph, () => this.random() * Math.PI * 2); // personal phase
     this.op = grow(this.op, () => 0.55 + this.random() * 0.45);  // personal opacity
-    this.fp = grow(this.fp, () => this.random() * Math.PI * 2);   // wingbeat phase
+    this.fp = grow(this.fp, () => this.random() * TAU);   // wingbeat phase — ALWAYS advancing
+    // Attitude (see the flight block in _step). The heading is state; hx/hy is
+    // its unit vector, written once per step so the renderer does no trig.
+    this.hd = grow(this.hd, (i) => this.ph[i]);   // start facing your phase angle
+    this.hx = grow(this.hx, () => 0); this.hy = grow(this.hy, () => 0);
+    this.hdw = grow(this.hdw, () => (this.random() - 0.5) * 0.5); // rad/s of looking around
+    this.ef = grow(this.ef, () => 0.3); // stroke depth ─┐ smoothed, so every gait
+    this.br = grow(this.br, () => 0);   // the flare     ├ change is a blend and
+    this.bk = grow(this.bk, () => 0);   // bank, signed ─┘ never a switch
     this.vmax = grow(this.vmax, () => (0.8 + 0.4 * this.random()) * this.p.maxSpeed); // birds differ
     this.escx = grow(this.escx, () => 0); this.escy = grow(this.escy, () => 0); // startle heading
     this.stT = grow(this.stT, () => 0);   // startle seconds left
@@ -396,7 +427,18 @@ export class Flock {
     }
   }
 
+  // Vsync snapping: a delta already within 12% of a whole number of steps IS
+  // that many steps. Without it, rAF's sub-millisecond noise beats against the
+  // 60 Hz sim — measured on 479 real deltas, only 49.5% of frames took one step,
+  // 25.3% took two and 25.3% took none (and no step means no redraw). That beat
+  // was the judder. Faster and genuinely slow frames still use the accumulator.
   advance(dt) {
+    const k = Math.round(dt / STEP);
+    if (k >= 1 && k <= MAX_STEPS && Math.abs(dt - k * STEP) < STEP * 0.12) {
+      this._acc = 0;
+      for (let i = 0; i < k; i++) this._step(STEP);
+      return k;
+    }
     this._acc += Math.min(dt, STEP * MAX_STEPS);
     let steps = 0;
     while (this._acc >= STEP) { this._step(STEP); this._acc -= STEP; steps++; }
@@ -638,6 +680,9 @@ export class Flock {
     // briefly reach 1.35× it, a roaming one 1.15× — nobody teleports.
     const tempo = this.tempo;
     const over = p.overshoot;
+    const { hd, hx, hy, hdw, fp, ef, br, bk } = this;
+    const wSlow = p.turnRate * DEG, wSpan = (p.turnRateFast - p.turnRate) * DEG;
+    const beatSpan = p.beatFast - p.beatSlow;
     for (let i = 0; i < n; i++) {
       vx[i] += fx[i] * dt; vy[i] += fy[i] * dt;
       let sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
@@ -648,6 +693,57 @@ export class Flock {
       if (mode === 'snow' && y[i] > this.h + 8) { y[i] = -8; x[i] = this.random() * this.w; }
       if (x[i] < -over) x[i] = -over; else if (x[i] > this.w + over) x[i] = this.w + over;
       if (y[i] < -over) y[i] = -over; else if (y[i] > this.h + over && mode !== 'snow') y[i] = this.h + over;
+
+      /* --- Flight (DESIGN.md “Flight”) --------------------------------------
+       * Attitude: the heading is STATE turning toward the velocity, rate-limited,
+       * tighter the faster you go (ω = g·tanφ/v). Reading it off the velocity
+       * instead — a bird hovering at 8 px/s — peaked at 10 744 °/s of spin.
+       */
+      const vm = this.vmax[i];
+      let conf = sp / p.headingSpeed; if (conf > 1) conf = 1; conf *= conf;
+      let fastn = sp / (vm * 0.8); if (fastn > 1) fastn = 1;
+      const limMax = (wSlow + wSpan * fastn) * dt;
+      let d = 0;
+      if (sp > 1e-3) {
+        d = Math.atan2(vy[i], vx[i]) - hd[i];
+        if (d > PI) d -= TAU; else if (d < -PI) d += TAU;
+        const lim = limMax * conf;
+        if (d > lim) d = lim; else if (d < -lim) d = -lim;
+      }
+      // Oscillating, not drifting: a constant rate would turn every hovering
+      // bird on the spot forever, which is a rotisserie, not a roost.
+      hd[i] += d + hdw[i] * Math.sin(t * 0.37 + this.ph[i] * 2.3) * (1 - conf) * dt;
+      if (hd[i] > PI) hd[i] -= TAU; else if (hd[i] < -PI) hd[i] += TAU;
+      const ux = hx[i] = Math.cos(hd[i]), uy = hy[i] = Math.sin(hd[i]);
+
+      /* GAIT. Three smoothed scalars, deliberately not a state machine: a
+       * transition between gaits is then a blend by construction, with nothing
+       * to sequence and nothing to snap. The wingbeat PHASE never resets and
+       * never stops — only its depth and its rate change — so a bird powering
+       * out of a glide picks the stroke up wherever the wing happened to be.
+       *   drive  stroke depth: baseline for what it is DOING, plus what it is
+       *          asking of the air now, less the stretches where it is fast and
+       *          asking for nothing — which is what makes a roamer flap the
+       *          turns and glide the straights, unsequenced. (Thrust alone fails:
+       *          with no drag, a bird at escape speed demands nothing and came
+       *          out gliding.)
+       *   brake  thrust pointing BACKWARDS — the flare: wings forward and spread.
+       *   bank   how much of its allowed turn it is actually using.
+       */
+      let push = (fx[i] * ux + fy[i] * uy) / p.maxForce;
+      let thrust = push > 0 ? push : 0; if (thrust > 1) thrust = 1;
+      let brake = push < 0 ? -push : 0; if (brake > 1) brake = 1;
+      let hover = 1 - sp / 30; if (hover < 0) hover = 0;
+      const si = mode === 'snow' ? 0 : st[i];   // snow has no states; it just falls
+      const base = si === 1 ? 1.35 : si === 2 ? 0.42 : 0.30;
+      let drive = base + 0.55 * thrust + 0.30 * brake - 0.42 * fastn * (1 - thrust);
+      if (drive > 1) drive = 1; else if (drive < 0) drive = 0;
+      ef[i] += (drive - ef[i]) * 0.10;      // ≈0.16 s to settle: gait changes over
+      br[i] += (brake - br[i]) * 0.08;      // a few beats, never instantly
+      bk[i] += (d / limMax - bk[i]) * 0.12;
+      // Hovering beats FASTER, not deeper — that keeps the mark crisp.
+      fp[i] += (p.beatSlow + beatSpan * ef[i] + 3.2 * hover) * TAU * dt * tempo;
+      if (fp[i] > TAU) fp[i] -= TAU;
     }
 
     // Housekeeping.
@@ -661,7 +757,7 @@ export class Flock {
   // One geometry pass per frame into reused scratch; the painters (WebGL or
   // Canvas 2D, below) only read it. Alpha 0 means culled.
   geometry() {
-    const { n, x, y, vx, vy, op, fp } = this;
+    const { n, x, y, hx, hy, op, fp, ef, br, bk, p } = this;
     const tips = this._tips, alp = this._alp;
     const near = this.pointer.on ? this.pointer : null;
     for (let i = 0; i < n; i++) {
@@ -672,11 +768,8 @@ export class Flock {
         if (d2 < 220 * 220) o = Math.min(1, o + (1 - Math.sqrt(d2) / 220) * 0.4);
       }
       alp[i] = 0.35 + o * 0.6;
-      const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
-      let ux = sp > 0.01 ? vx[i] / sp : Math.cos(this.ph[i]);
-      let uy = sp > 0.01 ? vy[i] / sp : Math.sin(this.ph[i]);
-      const [lx, ly, rx, ry] = wingTips(ux, uy, sp, fp[i]);
-      tips[i * 4] = lx; tips[i * 4 + 1] = ly; tips[i * 4 + 2] = rx; tips[i * 4 + 3] = ry;
+      // The heading and the gait were settled in _step; this pass is pose only.
+      wingPose(hx[i], hy[i], fp[i], ef[i], br[i], bk[i], p.wing, p.bank, tips, i * 4);
     }
   }
 }

@@ -12,6 +12,7 @@ Dev-only. Nothing in here ships. `npm install` once, then:
 | `node check.mjs`       | the gate: axe, Lighthouse 100s, < 100 KB, reduced-motion, no-js       |
 | `node shots.mjs`       | contact sheet of every state → `out/contact-sheet.png`                |
 | `node crowd.mjs`       | are birds collecting in crannies? worst crowd + stuck count, per scroll |
+| `node flight.mjs`      | do they fly like birds? turn rate, one size, the beat, frame pacing; filmstrip |
 | `node fps.mjs`         | the frame rate the flock actually achieves, worker vs main, per config |
 | `node perf.mjs`        | journey benchmark: main-thread frame times and long tasks             |
 | `node probe.mjs`       | isolates what costs — canvas area, DPR — one variable at a time       |
