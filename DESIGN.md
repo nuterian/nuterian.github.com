@@ -295,6 +295,36 @@ forever, several thousand times a second. (The archive arrow's bob hit this firs
 gated the same way.) Under reduced motion the computed `animation-name` is `none`, and the
 wash is a still. `@media print` hides it.
 
+**The flock catches it.** A wing segment is a thin surface seen from above, so its screen
+normal is the segment turned 90°: it flashes when it runs *across* the beam and goes dark
+edge-on. `shade = glint · GLINT · |n · lightDir|³`, with `GLINT = 0.5` holding the whole
+effect to a whisper.
+
+The GL path computes this **in the vertex shader**, from `n` — which that shader was already
+computing to stretch the quad across its segment. So:
+
+- **Nothing is added to the instance layout.** Still two segments per bird, five floats each,
+  one draw call. The lighting costs three uniforms and one varying, and no CPU work at all.
+- **It is per *segment*, not per bird.** A bird's two wings shade independently, which is
+  what makes it read as light rather than as tinting.
+- **It flickers, and that is the point.** The wingbeat and the banking already rotate and
+  foreshorten every segment each frame, so the glint travels across a turning flock on its
+  own. Nothing animates it; it falls out of the geometry that was moving anyway.
+
+Measured against the model at 1× DPR (light theme, seed 7): at 7am the lit fifth of the
+flock shifts 16 levels per channel at the stroke's core against a predicted 20, the edge-on
+fifth 9 against 12, and the shift correlates with predicted shade at r = 0.62 across all 140
+birds. At noon the same numbers are 2.9 and 1.5 — the effect is ~5.7× weaker, which is
+elevation doing its job.
+
+`Canvas2DPainter` runs the same `shade()` on the CPU, folded into the six opacity buckets it
+already sorts birds into: a wing catching the light lands its bird a bucket brighter. It is
+per bird rather than per segment there — both wings are one sub-path — and quantised to six
+steps, so it is coarse. It is the fallback; it only has to be *right*, not equal.
+`tools/still.mjs` bakes the same shading into the no-JS SVG's per-polyline `opacity`, at the
+same hour `og.png` is shot at. Only the angle bakes in: the still strokes `currentColor`, so
+its colour still follows the theme at read time.
+
 **`?hour=`** pins the clock — for the hue *and* the light — so a tool's screenshot
 reproduces. `tools/og.mjs` pins `?hour=9` alongside `?still`, `?seed=` and reduced motion,
 and `og.png` is byte-identical run to run. `?hue=` still pins the accent on its own.

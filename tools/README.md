@@ -21,7 +21,8 @@ Dev-only. Nothing in here ships. `npm install` once, then:
 Anything that takes a picture of the site pins the two clocks that would otherwise move
 under it: `?seed=` fixes the flock, `?hour=` fixes the hue *and* the light (`js/hue.js`),
 and Playwright's `reducedMotion: 'reduce'` stops the CSS animations. `still.mjs` needs no
-browser and no pinning: it drives the simulation directly, from the seed.
+browser and no pinning: it drives the simulation directly, from the seed, and bakes the
+light at the same hour `og.mjs` shoots.
 
 Source fonts: the latin woff2 subsets served by Google Fonts for Geist and Geist Mono
 (`src-fonts/`, not committed — see `fonts.mjs` for the URLs).

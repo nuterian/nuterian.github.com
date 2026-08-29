@@ -788,6 +788,15 @@ export class Flock {
   }
 }
 
+// How a wing catches the light (DESIGN.md, "Light"): its screen normal is the
+// segment turned 90°, so it flashes across the beam and goes dark edge-on.
+// Both constants are injected into the GLSL below — one copy of each number.
+export const GLINT = 0.5, SHADE_K = 3;
+export function shade(dx, dy, lx, ly, glint) {
+  const len = Math.hypot(dx, dy) || 1e-4;
+  return glint * GLINT * Math.abs((dx * ly - dy * lx) / len) ** SHADE_K;
+}
+
 /*
  * GLPainter — the preferred way to draw the flock: instanced quads on the GPU.
  * One static unit quad, one small dynamic buffer (two wing segments per bird,
@@ -840,7 +849,9 @@ export class GLPainter {
       attribute float alp;
       uniform vec2 res;
       uniform mediump float hw;             // mediump to match the fragment stage exactly
-      varying float v; varying float dpx;   // signed distance from the centreline, px
+      uniform vec2 ldir;                    // unit vector at the light
+      uniform float glint;                  // the hour's raking strength
+      varying float v; varying float dpx, lit;  // dpx: distance from centreline, px
       void main() {
         vec2 d = seg.zw - seg.xy;
         float len = max(length(d), 1e-4);
@@ -849,16 +860,17 @@ export class GLPainter {
         vec2 p = seg.xy + u * (q.x * (len + 2.0 * hwE) - hwE) + n * (q.y * hwE);
         vec2 c = p / res * 2.0 - 1.0;
         gl_Position = vec4(c.x, -c.y, 0.0, 1.0);
+        lit = glint * pow(abs(dot(n, ldir)), ${SHADE_K}.0);   // n IS the normal
         v = alp; dpx = q.y * hwE;
       }`));
     gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, `
       precision mediump float;
-      uniform vec4 col; uniform float hw;
-      varying float v; varying float dpx;
+      uniform vec4 col; uniform float hw; uniform vec3 litCol;
+      varying float v; varying float dpx, lit;
       void main() {
         float edge = clamp((hw + 0.375 - abs(dpx)) / 0.75, 0.0, 1.0); // ~1px feather
         float a = col.a * v * edge;
-        gl_FragColor = vec4(col.rgb * a, a);
+        gl_FragColor = vec4(mix(col.rgb, litCol, lit) * a, a);
       }`));
     gl.linkProgram(prog);
     this.ok = gl.getProgramParameter(prog, gl.LINK_STATUS);
@@ -867,6 +879,9 @@ export class GLPainter {
     this.uRes = gl.getUniformLocation(prog, 'res');
     this.uHw = gl.getUniformLocation(prog, 'hw');
     this.uCol = gl.getUniformLocation(prog, 'col');
+    this.uLdir = gl.getUniformLocation(prog, 'ldir');
+    this.uGlint = gl.getUniformLocation(prog, 'glint');
+    this.uLitCol = gl.getUniformLocation(prog, 'litCol');
     const aQ = gl.getAttribLocation(prog, 'q');
     const aSeg = gl.getAttribLocation(prog, 'seg');
     const aAlp = gl.getAttribLocation(prog, 'alp');
@@ -887,7 +902,8 @@ export class GLPainter {
     this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  draw(f, { rgb = [0.5, 0.5, 0.5], alpha = 1, width = 1.25, w, h }) {
+  draw(f, { rgb = [0.5, 0.5, 0.5], alpha = 1, width = 1.25, w, h,
+            light = [0, -1], litRgb = rgb, glint = 0 }) {
     const gl = this.gl;
     if (gl.isContextLost()) return;
     const { n, x, y } = f, tips = f._tips, alp = f._alp, inst = f._inst;
@@ -908,6 +924,9 @@ export class GLPainter {
     gl.uniform2f(this.uRes, w, h);
     gl.uniform1f(this.uHw, width / 2);
     gl.uniform4f(this.uCol, rgb[0], rgb[1], rgb[2], alpha);
+    gl.uniform2f(this.uLdir, light[0], light[1]);  // glint pre-scaled by GLINT
+    gl.uniform1f(this.uGlint, glint * GLINT);
+    gl.uniform3f(this.uLitCol, litRgb[0], litRgb[1], litRgb[2]);
     this.drawInst(gl.TRIANGLE_STRIP, 0, 4, m * 2);
   }
 }
@@ -929,7 +948,8 @@ export class Canvas2DPainter {
     this.dpr = dpr;
   }
 
-  draw(f, { color = '#888', alpha = 1, width = 1.25, w, h }) {
+  draw(f, { color = '#888', alpha = 1, width = 1.25, w, h,
+            light = [0, -1], glint = 0 }) {
     const ctx = this.ctx, dpr = this.dpr;
     ctx.clearRect(0, 0, w * dpr, h * dpr);
     ctx.save();
@@ -937,8 +957,16 @@ export class Canvas2DPainter {
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.lineWidth = width; ctx.strokeStyle = color;
     const { n, x, y } = f, tips = f._tips, alp = f._alp, buck = f._buck;
-    const buckets = 6;
-    for (let i = 0; i < n; i++) buck[i] = alp[i] === 0 ? 255 : Math.min(buckets - 1, (alp[i] * buckets) | 0);
+    const buckets = 6, lx = light[0], ly = light[1];
+    // Same shading, but per BIRD: both wings share one sub-path here, so the
+    // brighter of the two picks the bucket — catching the light is a step up.
+    for (let i = 0; i < n; i++) {
+      if (alp[i] === 0) { buck[i] = 255; continue; }
+      const o = i * 4;
+      const s = glint === 0 ? 0 : Math.max(shade(tips[o], tips[o + 1], lx, ly, glint),
+                                           shade(tips[o + 2], tips[o + 3], lx, ly, glint));
+      buck[i] = Math.min(buckets - 1, (alp[i] * (1 + s) * buckets) | 0);
+    }
     for (let b = 0; b < buckets; b++) {
       ctx.globalAlpha = alpha * ((b + 0.5) / buckets);
       ctx.beginPath();
@@ -970,8 +998,7 @@ export class Runner {
     this.painter = GLPainter.try(canvas) || new Canvas2DPainter(canvas);
     this.raf = raf;
     this.flock = null;
-    // light: unit screen vector at the sun (or moon); lit: the colour a wing
-    // takes when it catches it; glint: how hard. All off the style message.
+    // light: unit screen vector at the sun (or moon); lit: what a lit wing turns.
     this.style = { color: '#888', rgb: [0.5, 0.5, 0.5], alpha: 1, width: 1.25,
       light: [0, -1], lit: '#888', litRgb: [0.5, 0.5, 0.5], glint: 0 };
     this.dpr = 1; this.w = 1; this.h = 1; this.dirty = true;
