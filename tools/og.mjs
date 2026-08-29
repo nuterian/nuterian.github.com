@@ -3,7 +3,10 @@ import { chromium } from 'playwright';
 import sharp from 'sharp';
 const base = process.argv[2] || 'http://localhost:4174';
 const browser = await chromium.launch();
-const page = await (await browser.newContext({ viewport: { width: 1200, height: 630 }, colorScheme: 'light', deviceScaleFactor: 1 })).newPage();
+// reducedMotion so the shot is REPRODUCIBLE: `?still` freezes the flock, but the
+// archive arrow's bob is a CSS animation and would land wherever it happened to
+// be. The site's own reduced-motion rule stops it; nothing else here moves.
+const page = await (await browser.newContext({ viewport: { width: 1200, height: 630 }, colorScheme: 'light', deviceScaleFactor: 1, reducedMotion: 'reduce' })).newPage();
 await page.goto(`${base}/?still&seed=2013&hue=88`); await page.waitForTimeout(800);
 const png = await page.screenshot();
 await browser.close();

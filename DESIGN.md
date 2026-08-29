@@ -250,7 +250,11 @@ years, captions, links, footer. `tnum` for numbers; `hanging-punctuation`;
 ## Layout
 
 One tall page. Hero is a full viewport (`100dvh`, safe-area aware), text bottom-left, the
-flock owns the rest; the hero text recedes on scroll (scroll-driven animation). Archive
+flock owns the rest; the hero text recedes on scroll (scroll-driven animation). The hero's
+`archive ↓` link keeps a slow 2.6 s bob on its arrow, eased at both ends so it hangs at the
+top and bottom of the travel — the one piece of motion on the page that is *pointing* at
+something. It rides `translate` while the hover nudge stays on `transform`, because the two
+compose and a running animation would otherwise outrank the hover outright. Archive
 below: numbered rows (name · medium in mono), 56 px tall, hairline rules. Footer: the
 dateline “2013 → 2026” and the theme dot, nothing else. The arrow fades in the first
 time it scrolls into view. The 2013 site is still preserved at `/2013/` and its

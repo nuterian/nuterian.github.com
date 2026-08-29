@@ -215,8 +215,18 @@ h1 {
 .hero-links { display: flex; gap: 1.5rem; margin-top: 1.75rem; list-style: none; padding: 0; font-family: var(--mono); font-size: .8125rem; letter-spacing: .02em; text-transform: lowercase; }
 .hero-links a { display: inline-block; padding: .25rem 0; min-height: 44px; line-height: 44px; }
 .hero-links li:last-child { margin-left: auto; }
-.hero-links a[href='#archive']::after { content: ' ↓'; display: inline-block; transition: transform .4s var(--ease-out); }
+/* The arrow keeps its own slow bob, pointing the way down the page. It rides on
+ * `translate` while the hover nudge stays on `transform`, because the two
+ * compose — otherwise the running animation would simply outrank the hover. */
+.hero-links a[href='#archive']::after {
+  content: '↓'; display: inline-block; margin-left: .45em;
+  transition: transform .4s var(--ease-out);
+}
 .hero-links a[href='#archive']:hover::after { transform: translateY(3px); }
+@media (prefers-reduced-motion: no-preference) {
+  .hero-links a[href='#archive']::after { animation: archive-bob 2.6s var(--ease-in-out) infinite; }
+}
+@keyframes archive-bob { 50% { translate: 0 4px; } }
 
 /* As you scroll away, the hero text recedes; the flock doesn't. */
 @supports (animation-timeline: scroll()) {
