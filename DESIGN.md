@@ -380,7 +380,16 @@ flock owns the rest; the hero text recedes on scroll (scroll-driven animation). 
 top and bottom of the travel — the one piece of motion on the page that is *pointing* at
 something. It rides `translate` while the hover nudge stays on `transform`, because the two
 compose and a running animation would otherwise outrank the hover outright. Archive
-below: numbered rows (name · medium in mono), 56 px tall, hairline rules. Footer: the
+below: numbered rows (name · medium in mono), 56 px tall, hairline rules. The hero text
+recedes on a scroll-driven animation whose range is a **percentage of the scrollable
+distance**, not a `vh` figure: this page is short — one `100dvh` hero over an archive of six
+— so on a tall window the whole document scrolls less than one viewport height and the hero
+never leaves the screen. Keyed to `70vh` the fade could not finish (at 1400 px tall it
+stalled at opacity .31, leaving the github/linkedin/archive links sitting over the archive
+you were reading); a percentage is reachable whatever the window. It ends at `opacity: 0`
+**and `visibility: hidden`** — opacity alone leaves three invisible links in the tab order,
+and focus cannot be relied on to scroll them back into view, because on exactly those tall
+windows they are already on screen. Footer: the
 dateline “2013 → 2026” and the theme dot, nothing else. The arrow fades in the first
 time it scrolls into view. The 2013 site is still preserved at `/2013/` and its
 screenshots still come from there, but nothing links to it any more — the archive

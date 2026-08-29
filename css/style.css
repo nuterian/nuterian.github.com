@@ -269,11 +269,27 @@ h1 {
 }
 @keyframes archive-bob { 50% { translate: 0 4px; } }
 
-/* As you scroll away, the hero text recedes; the flock doesn't. */
+/* As you scroll away, the hero text recedes; the flock doesn't.
+ *
+ * The range is a PERCENTAGE of the scrollable distance, not a vh figure. This
+ * page is short — a 100dvh hero over an archive of six — so on a tall window
+ * the whole document scrolls less than one viewport height, and the hero can
+ * never leave the screen at all. Keyed to `70vh` the fade then never finished:
+ * at 1400px tall it stalled at opacity .31 with the github/linkedin/archive
+ * links still sitting there while you read the archive. A percentage is
+ * reachable by construction, whatever the window and however long the page.
+ *
+ * It ends at 0, not at a ghost — and at `visibility: hidden`, which is the
+ * part that matters. Opacity alone would leave three invisible links in the
+ * tab order, and you cannot rely on focus scrolling them back into view: on
+ * exactly the tall windows where this goes wrong they are already ON screen,
+ * so the browser has nothing to scroll. visibility takes them out of the tab
+ * order outright, and it interpolates as `visible` until the very end, so the
+ * fade still plays in full. */
 @supports (animation-timeline: scroll()) {
   @media (prefers-reduced-motion: no-preference) {
-    .hero-text { animation: hero-away linear both; animation-timeline: scroll(); animation-range: 0 70vh; }
-    @keyframes hero-away { to { opacity: .15; transform: translateY(-2rem); } }
+    .hero-text { animation: hero-away linear both; animation-timeline: scroll(); animation-range: 0 55%; }
+    @keyframes hero-away { to { opacity: 0; transform: translateY(-2rem); visibility: hidden; } }
   }
 }
 
