@@ -14,8 +14,8 @@ root.style.setProperty('--hue', hue.toFixed(1));
 // it as custom properties, the flock gets it on the style message.
 function style() {
   const l = lightAt(new Date(), dark(), hue);
-  root.style.setProperty('--light-x', (50 + Math.cos(l.az) * 60).toFixed(1) + '%');
-  root.style.setProperty('--light-y', (50 + Math.sin(l.az) * 60).toFixed(1) + '%');
+  root.style.setProperty('--light-x', (50 + Math.cos(l.az) * 62).toFixed(1) + '%');
+  root.style.setProperty('--light-y', (50 + Math.sin(l.az) * 44).toFixed(1) + '%');
   root.style.setProperty('--glow', l.glow.toFixed(3));
   return { type: 'style', style: { color: flockColor(dark(), hue), lit: l.tint, glint: l.glint, light: [Math.cos(l.az), Math.sin(l.az)] } };
 }

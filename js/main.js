@@ -56,8 +56,8 @@ let light = lightAt(clock(), isDark(), hue);
 // flock off the style message. Same numbers, one source.
 function applyLight() {
   light = lightAt(clock(), isDark(), hue);
-  root.style.setProperty('--light-x', (50 + Math.cos(light.az) * 60).toFixed(1) + '%');
-  root.style.setProperty('--light-y', (50 + Math.sin(light.az) * 60).toFixed(1) + '%');
+  root.style.setProperty('--light-x', (50 + Math.cos(light.az) * 62).toFixed(1) + '%');
+  root.style.setProperty('--light-y', (50 + Math.sin(light.az) * 44).toFixed(1) + '%');
   root.style.setProperty('--glow', light.glow.toFixed(3));
 }
 function applyHue() { root.style.setProperty('--hue', hue.toFixed(1)); pushStyle(); }

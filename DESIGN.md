@@ -283,6 +283,24 @@ nothing in the axe run. Its position is `--light-x` / `--light-y` and its alpha 
 They also have **defaults in pure CSS** (a mid-morning sun), so the page is lit with no
 script at all.
 
+Two things about it are easy to get wrong, and were:
+
+- **The bloom needs a core.** A plain two-stop radial peaks at one infinitesimal point and
+  is fading everywhere else. With the light sitting near the top edge, that left only the
+  gradient's tail on the page — measurably so: the strongest wash pixel was at `y = 0` at
+  every hour. The colour is now held flat to 30 % of the radius before the falloff starts.
+- **The light source has to stay on the page.** The azimuth alone put noon 10 % *above* the
+  viewport, so the brightest light never landed anywhere. The horizontal throw is the
+  readable part of the motion and keeps its full swing (±62 %); the vertical is damped
+  (±44 %) so the source sits just inside the top edge at every hour.
+
+And the two themes are tuned **separately, not symmetrically**. The same wash does unequal
+work on each: over a near-black page it multiplies what is already there, over near-white
+paper it only adds a small fraction to something already bright. So light mode's wash sits
+*below* its background in lightness (76 % under 98.2 %) and dark mode's sits *above* (62 %
+over 14 %). At the strongest on-screen point that is ~50 levels in light and ~39 in dark —
+close enough to read as the same light in both, which equal alphas emphatically did not.
+
 It breathes over 45 s on `transform` and `opacity` **only**. Those are compositor
 properties: the gradient rasterises once and is never repainted. A gradient that animated
 its own stops would repaint a full-viewport layer for 45 s at a stretch, which is the one

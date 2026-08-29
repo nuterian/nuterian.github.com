@@ -64,12 +64,16 @@
   /* The light of the hour (main.js: applyLight, from hue.js: lightAt). Written
    * here so the page still looks lit with no script at all — these defaults are
    * a mid-morning sun, which is where the wash sits before JS says otherwise. */
-  --light-x: 22%; --light-y: 2%; --glow: 0.7;
+  --light-x: 22%; --light-y: 10%; --glow: 0.7;
   /* The wash's colour is the hour's own hue, so daylight is gold and the small
    * hours are blue without a second palette. --glow scales its alpha: the wash
-   * is ambient light, and there is less of it at night. */
-  --wash: light-dark(oklch(85% 0.13 var(--hue) / calc(var(--glow) * 0.13)),
-                     oklch(62% 0.10 var(--hue) / calc(var(--glow) * 0.16)));
+   * is ambient light, and there is less of it at night.
+   *
+   * Tuned per theme, NOT symmetrically: the same wash multiplies a near-black
+   * page and merely tints a near-white one. So light sits below its background
+   * in lightness (76% under 98.2%), dark above (62% over 14%). DESIGN.md. */
+  --wash: light-dark(oklch(76% 0.15 var(--hue) / calc(var(--glow) * 0.15)),
+                     oklch(62% 0.10 var(--hue) / calc(var(--glow) * 0.13)));
 
   /* The one theme-varying value that isn't a colour — see below. */
   --shot-filter: none;
@@ -193,18 +197,19 @@ img, svg { display: block; max-width: 100%; height: auto; }
 .still polyline { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.25; }
 
 /* --- The wash: sunlight on the page, moonlight after dark ---------------- */
-/* One fixed bloom, sitting where the light is (--light-x/y, set by the clock).
- * At z-index 0 it is under every content layer and over the page background,
- * which keeps --bg the colour every contrast ratio is still measured against.
- *
- * It breathes on `transform` and `opacity` ONLY: those are compositor
- * properties, so the gradient itself is rasterised once and never repainted —
- * a radial-gradient that animated its own stops would repaint a full-viewport
- * layer for 45 s at a time. The amplitude is a few percent on purpose. */
+/* One fixed bloom where the light is (--light-x/y, set by the clock). At
+ * z-index 0 it is under every content layer and over the page background, so
+ * --bg stays the colour contrast is measured against. It breathes on
+ * `transform` and `opacity` ONLY — compositor properties, so the gradient
+ * rasterises once and is never repainted. See DESIGN.md, "Light". */
 body::before {
   content: '';
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background: radial-gradient(58% 52% at var(--light-x) var(--light-y), var(--wash), transparent 70%);
+  /* Flat to 30% of the radius before the falloff: a plain two-stop radial peaks
+   * at one point and fades everywhere else, so with the source near the top
+   * edge the page saw only the tail of it. */
+  background: radial-gradient(72% 62% at var(--light-x) var(--light-y),
+    var(--wash) 0%, var(--wash) 30%, transparent 78%);
 }
 /* Wrapped in no-preference rather than left to the global reduced-motion
  * override at the foot of this file: that override sets animation-duration to
