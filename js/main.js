@@ -13,7 +13,7 @@
  */
 
 import { Runner, MARK, MARK_ASPECT, DEFAULTS } from './flock.js';
-import { hueAt, flockColor } from './hue.js';
+import { hueAt, lightAt, flockColor } from './hue.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -21,6 +21,10 @@ const root = document.documentElement;
 const params = new URLSearchParams(location.search);
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const STILL = params.has('still') || reduceMotion.matches;
+// Which theme is in force. Up here because §1's light needs it too — the same
+// sun tints one way on paper and another on a night sky.
+const darkMQ = matchMedia('(prefers-color-scheme: dark)');
+const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : darkMQ.matches;
 
 let post;          // send a message to wherever the flock lives (set in §2)
 let inWorker = false;
@@ -35,18 +39,38 @@ const homes = new Map(); // slug → where its .sheet lives when closed
 let opener = null, current = null; // the row that opened the sheet; the open slug
 
 /* ---------------------------------------------------------------------------
- * 1. Hue of the day (see hue.js)
+ * 1. Hue of the day, and where the light comes from (see hue.js)
+ *
+ * One clock, two outputs. `?hour=` pins it for both, so tool shots reproduce;
+ * `?hue=` still pins the accent on its own.
  * ------------------------------------------------------------------------- */
-let hue = params.has('hue') ? +params.get('hue') : hueAt();
+const pinnedHour = params.has('hour') ? +params.get('hour') : null;
+function clock() {
+  const d = new Date();
+  if (pinnedHour !== null) d.setHours(pinnedHour | 0, (pinnedHour % 1) * 60, 0, 0);
+  return d;
+}
+let hue = params.has('hue') ? +params.get('hue') : hueAt(clock());
+let light = lightAt(clock(), isDark(), hue);
+// The page reads the light as custom properties (the wash in style.css), the
+// flock off the style message. Same numbers, one source.
+function applyLight() {
+  light = lightAt(clock(), isDark(), hue);
+  root.style.setProperty('--light-x', (50 + Math.cos(light.az) * 60).toFixed(1) + '%');
+  root.style.setProperty('--light-y', (50 + Math.sin(light.az) * 60).toFixed(1) + '%');
+  root.style.setProperty('--glow', light.glow.toFixed(3));
+}
 function applyHue() { root.style.setProperty('--hue', hue.toFixed(1)); pushStyle(); }
 applyHue();
-setInterval(() => { if (!params.has('hue')) { hue = hueAt(); applyHue(); } }, 60_000);
+setInterval(() => {
+  if (pinnedHour !== null) return;
+  if (!params.has('hue')) hue = hueAt(clock());
+  applyHue();
+}, 60_000);
 
 /* ---------------------------------------------------------------------------
  * Theme: follows the system; `t` or the footer dot cycles system → dark → light.
  * ------------------------------------------------------------------------- */
-const darkMQ = matchMedia('(prefers-color-scheme: dark)');
-const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : darkMQ.matches;
 const themeBtn = $('#theme-toggle');
 function setTheme(mode) { // 'system' | 'dark' | 'light'
   if (mode === 'system') { delete root.dataset.theme; localStorage.removeItem('theme'); }
@@ -97,8 +121,13 @@ const month = new Date().getMonth();
 const season = params.get('season') || (month === 11 ? 'snow' : null);
 
 
-function flockStyle() { return { color: flockColor(isDark(), hue) }; }
-function pushStyle(extra) { post?.({ type: 'style', style: { ...flockStyle(), ...extra } }); }
+function flockStyle() {
+  return { color: flockColor(isDark(), hue), lit: light.tint, glint: light.glint,
+    light: [Math.cos(light.az), Math.sin(light.az)] };
+}
+// applyLight() is a statement, not an argument: `post?.(…)` never evaluates its
+// argument before the flock exists, and the page's light must not wait for it.
+function pushStyle(extra) { applyLight(); post?.({ type: 'style', style: { ...flockStyle(), ...extra } }); }
 
 function initMessage() {
   const { w, h } = measureWorld();
@@ -322,7 +351,7 @@ if (arrow && 'IntersectionObserver' in window) {
 
 // Console: one line, and a handle to poke at.
 console.log(
-  `%cflock%c ${TARGET} · rules: separation, alignment, cohesion, you · ${inWorker ? 'worker + OffscreenCanvas' : 'main thread'}${STILL ? ' · still' : ''} (renderer: flock.where)\n%cwindow.flock — { count, fps, params, home, season(), hue, seed } · ?n= ?seed= ?still ?hue= ?season=snow · press t`,
+  `%cflock%c ${TARGET} · rules: separation, alignment, cohesion, you · ${inWorker ? 'worker + OffscreenCanvas' : 'main thread'}${STILL ? ' · still' : ''} (renderer: flock.where)\n%cwindow.flock — { count, fps, params, home, season(), hue, seed } · ?n= ?seed= ?still ?hue= ?hour= ?season=snow · press t`,
   'font-weight:600', '', 'color:gray');
 window.flock = {
   get count() { return stats.n; },
@@ -337,6 +366,7 @@ window.flock = {
   get seed() { return seed; },
   get hue() { return hue; },
   set hue(v) { hue = +v; applyHue(); },
+  get light() { return { ...light, az: light.az * 180 / Math.PI }; },
   snapshot() { return new Promise(r => { snapshotResolve = r; post({ type: 'snapshot' }); }); },
   get where() { return `${inWorker ? 'worker' : 'main'} · ${stats.renderer || 'starting'}`; },
   get _runner() { return mainRunner; }, // main-thread only; handy in DevTools

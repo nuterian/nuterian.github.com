@@ -956,6 +956,11 @@ export class Canvas2DPainter {
   }
 }
 
+const rgbOf = (hex) => {
+  const c = parseInt(hex.slice(1), 16);
+  return [(c >> 16 & 255) / 255, (c >> 8 & 255) / 255, (c & 255) / 255];
+};
+
 /*
  * Runner: owns a canvas (Offscreen or not), a Flock, and the frame loop.
  */
@@ -965,7 +970,10 @@ export class Runner {
     this.painter = GLPainter.try(canvas) || new Canvas2DPainter(canvas);
     this.raf = raf;
     this.flock = null;
-    this.style = { color: '#888', rgb: [0.5, 0.5, 0.5], alpha: 1, width: 1.25 };
+    // light: unit screen vector at the sun (or moon); lit: the colour a wing
+    // takes when it catches it; glint: how hard. All off the style message.
+    this.style = { color: '#888', rgb: [0.5, 0.5, 0.5], alpha: 1, width: 1.25,
+      light: [0, -1], lit: '#888', litRgb: [0.5, 0.5, 0.5], glint: 0 };
     this.dpr = 1; this.w = 1; this.h = 1; this.dirty = true;
     this.frames = 0; this.accum = 0; this.last = 0;
     this.still = false; this.running = false; this.onstats = null;
@@ -973,10 +981,9 @@ export class Runner {
 
   _style(st) {
     Object.assign(this.style, st);
-    if (st.color) { // '#rrggbb' → linear-ish floats for the GL path
-      const c = parseInt(st.color.slice(1), 16);
-      this.style.rgb = [(c >> 16 & 255) / 255, (c >> 8 & 255) / 255, (c & 255) / 255];
-    }
+    // '#rrggbb' → floats for the GL path: the stroke's colour, and the lit one.
+    if (st.color) this.style.rgb = rgbOf(st.color);
+    if (st.lit) this.style.litRgb = rgbOf(st.lit);
   }
 
   handle(m) {

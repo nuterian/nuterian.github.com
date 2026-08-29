@@ -3,13 +3,22 @@
  * Small enough to run on the main thread; nothing here scrolls.
  */
 import { Runner, textPoints } from './flock.js';
-import { hueAt, flockColor } from './hue.js';
+import { hueAt, lightAt, flockColor } from './hue.js';
 
 const root = document.documentElement;
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const dark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 const hue = hueAt();
 root.style.setProperty('--hue', hue.toFixed(1));
+// The same clock, the same light as the home page (see hue.js) — the page gets
+// it as custom properties, the flock gets it on the style message.
+function style() {
+  const l = lightAt(new Date(), dark(), hue);
+  root.style.setProperty('--light-x', (50 + Math.cos(l.az) * 60).toFixed(1) + '%');
+  root.style.setProperty('--light-y', (50 + Math.sin(l.az) * 60).toFixed(1) + '%');
+  root.style.setProperty('--glow', l.glow.toFixed(3));
+  return { type: 'style', style: { color: flockColor(dark(), hue), lit: l.tint, glint: l.glint, light: [Math.cos(l.az), Math.sin(l.az)] } };
+}
 
 const canvas = document.getElementById('flock');
 const runner = new Runner(canvas);
@@ -20,8 +29,8 @@ const post = m => runner.handle(m);
 // a full-viewport canvas is a layer the compositor cannot afford per frame.
 const world = () => { const r = canvas.getBoundingClientRect(); return { w: Math.max(1, Math.round(r.width)), h: Math.max(1, Math.round(r.height)) }; };
 post({ type: 'init', dpr, ...world(), count: coarse ? 60 : 150, still: reduce });
-post({ type: 'style', style: { color: flockColor(dark(), hue) } });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => post({ type: 'style', style: { color: flockColor(dark(), hue) } }));
+post(style());
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => post(style()));
 
 // Sample "404" into points: that's home here. Only the SIZE is decided —
 // where it sits is the worker's own placement solver (no obstacles on this
@@ -43,6 +52,6 @@ addEventListener('pointermove', e => {
 }, { passive: true });
 document.addEventListener('mouseleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
 addEventListener('pointerup', e => { if (e.pointerType === 'touch') post({ type: 'attract', x: e.clientX, y: e.clientY, r: 110, k: 1.6, life: 1.3 }); }, { passive: true });
-addEventListener('keydown', e => { if (e.key === 't') { const cur = root.dataset.theme || 'system'; const next = cur === 'system' ? 'dark' : cur === 'dark' ? 'light' : 'system'; if (next === 'system') { delete root.dataset.theme; localStorage.removeItem('theme'); } else { root.dataset.theme = next; localStorage.setItem('theme', next); } post({ type: 'style', style: { color: flockColor(dark(), hue) } }); } });
+addEventListener('keydown', e => { if (e.key === 't') { const cur = root.dataset.theme || 'system'; const next = cur === 'system' ? 'dark' : cur === 'dark' ? 'light' : 'system'; if (next === 'system') { delete root.dataset.theme; localStorage.removeItem('theme'); } else { root.dataset.theme = next; localStorage.setItem('theme', next); } post(style()); } });
 document.addEventListener('visibilitychange', () => post({ type: 'visible', value: !document.hidden }));
 console.log('%cflock%c looked for this page too. It isn\'t here.', 'font-weight:600', '');

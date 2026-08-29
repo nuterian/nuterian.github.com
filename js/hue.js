@@ -45,3 +45,41 @@ export function oklch(L, C, H) {
 
 // The flock's colour for the current theme and hue (mirrors --flock in CSS).
 export function flockColor(dark, hue) { return oklch(dark ? 0.76 : 0.42, 0.10, hue); }
+
+// lightAt — the clock's second output: where the light comes from (DESIGN.md,
+// "Light"). Azimuth is a SCREEN direction (x right, y down), so -90° is
+// straight up; elevation is 0 on the horizon and 1 overhead; power is how
+// bright the source is at all — a sun, a moon, or the dim minutes between.
+const LIGHT_KEYS = [ // [hour, azimuth°, elevation, power]
+  [0,     -90, 0.55, 0.45],
+  [4.5,   -48, 0.16, 0.45],
+  [5.4,   -46, 0.00, 0.18],   // the moon sets
+  [5.6,  -134, 0.00, 0.50],   // the sun rises where it rose
+  [7,    -124, 0.30, 1.00],
+  [9,    -110, 0.62, 1.00],
+  [12,    -90, 0.95, 1.00],
+  [15.5,  -70, 0.62, 1.00],
+  [18,    -52, 0.28, 1.00],
+  [19.4,  -45, 0.00, 0.50],   // the sun sets
+  [19.6, -135, 0.00, 0.18],   // and the moon has the sky again
+  [21,   -122, 0.22, 0.45],
+  [24,    -90, 0.55, 0.45],
+];
+
+export function lightAt(date = new Date(), dark = false, hue = hueAt(date)) {
+  const h = date.getHours() + date.getMinutes() / 60;
+  let i = 0;
+  while (i < LIGHT_KEYS.length - 2 && h > LIGHT_KEYS[i + 1][0]) i++;
+  const [h0, a0, e0, p0] = LIGHT_KEYS[i], [h1, a1, e1, p1] = LIGHT_KEYS[i + 1];
+  const t = Math.min(1, Math.max(0, (h - h0) / (h1 - h0))), s = t * t * (3 - 2 * t);
+  const elev = e0 + (e1 - e0) * s, power = p0 + (p1 - p0) * s;
+  return {
+    az: (a0 + (a1 - a0) * s) * Math.PI / 180,
+    elev,
+    glint: power * (0.15 + 0.85 * (1 - elev) ** 1.5),  // raking glints, noon flattens
+    glow: power * (0.45 + 0.55 * elev),                // the wash is ambient, not raking
+    // Lit colour: the flock's own hue, opened up. Day saturates it, moonlight
+    // drains it to silver — one formula, the theme flip mirroring flockColor.
+    tint: oklch(dark ? 0.76 + 0.18 * power : 0.42 + 0.22 * power, 0.04 + 0.09 * power, hue),
+  };
+}
