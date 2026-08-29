@@ -267,9 +267,16 @@ straight up), an **elevation** (0 on the horizon, 1 overhead), a **glint** stren
   and flashes off it; noon comes straight down on everything equally and barely glints at
   all. `power · (0.15 + 0.85 · (1 − elev)^1.5)` — about 0.65 at 7am and 0.16 at noon, scaled
   down again at night, because moonlight is dim as well as cool.
-- **Glow follows elevation directly.** The wash is *ambient* light, not raking, so there is
-  most of it at noon and least at 3am. The two curves pull opposite ways on purpose: the
-  page is brightest when the birds are flattest.
+- **Glow follows elevation directly**, and the source's brightness only *compresses* it:
+  `(0.55 + 0.45 · power) · (0.45 + 0.55 · elev)`. The wash is ambient light, so there is most
+  of it at noon and least at 3am — the two curves pull opposite ways on purpose, and the page
+  is brightest when the birds are flattest. `power` deliberately does **not** multiply here,
+  the way it does in `glint`. It used to, and the moonlight was invisible: `power` is 0.45 for
+  the moon, the elevation term cut it again, and night landed at a four-level lift on a
+  near-black page. That was implementing "moonlight is dim" photometrically, which is the
+  wrong model — the eye is adapted to a dark page, and what makes moonlight read as moonlight
+  is that it is *cool*, which the tint already handles. Faintness was doing no work except
+  hiding it. Compressed instead, the term is exactly 1 at full sun, so no daylight hour moved.
 - **The tint is the hour's own hue**, opened up — no second palette. Daylight lifts lightness
   and saturates; moonlight lifts lightness and drains chroma to silver. The theme flip
   mirrors `flockColor` exactly: `oklch(dark ? .76 + .18·power : .42 + .22·power, .04 +
@@ -297,9 +304,10 @@ Two things about it are easy to get wrong, and were:
 And the two themes are tuned **separately, not symmetrically**. The same wash does unequal
 work on each: over a near-black page it multiplies what is already there, over near-white
 paper it only adds a small fraction to something already bright. So light mode's wash sits
-*below* its background in lightness (76 % under 98.2 %) and dark mode's sits *above* (62 %
-over 14 %). At the strongest on-screen point that is ~50 levels in light and ~39 in dark —
-close enough to read as the same light in both, which equal alphas emphatically did not.
+*below* its background in lightness (76 % under 98.2 %) and dark mode's sits *above* (64 %
+over 14 %), at a higher alpha. At the strongest on-screen point: ~50 levels in light and ~53
+in dark at noon, ~36 in dark at midnight — close enough to read as the same light in all
+three, which equal alphas emphatically did not.
 
 It breathes over 45 s on `transform` and `opacity` **only**. Those are compositor
 properties: the gradient rasterises once and is never repainted. A gradient that animated

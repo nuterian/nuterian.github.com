@@ -77,7 +77,11 @@ export function lightAt(date = new Date(), dark = false, hue = hueAt(date)) {
     az: (a0 + (a1 - a0) * s) * Math.PI / 180,
     elev,
     glint: power * (0.15 + 0.85 * (1 - elev) ** 1.5),  // raking glints, noon flattens
-    glow: power * (0.45 + 0.55 * elev),                // the wash is ambient, not raking
+    // The wash is ambient, not raking. `power` COMPRESSES here rather than
+    // multiplying: a dim source still lights a page you have adapted to, and
+    // moonlight reads as moonlight because it is cool, not because it is
+    // faint. The term is 1 at full sun, so daylight is untouched.
+    glow: (0.55 + 0.45 * power) * (0.45 + 0.55 * elev),
     // Lit colour: the flock's own hue, opened up. Day saturates it, moonlight
     // drains it to silver — one formula, the theme flip mirroring flockColor.
     tint: oklch(dark ? 0.76 + 0.18 * power : 0.42 + 0.22 * power, 0.04 + 0.09 * power, hue),
