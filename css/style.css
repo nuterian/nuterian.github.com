@@ -69,12 +69,13 @@
    * hours are blue without a second palette. --glow scales its alpha: the wash
    * is ambient light, and there is less of it at night.
    *
-   * Tuned per theme, NOT symmetrically: the same wash multiplies a near-black
-   * page and merely tints a near-white one. So light sits below its background
-   * in lightness (76% under 98.2%), dark above (64% over 14%) and at a higher
-   * alpha — dark was the theme that went unread. DESIGN.md. */
+   * The THEME picks which light: a light page is daylit and takes the hour's
+   * hue; a dark page is night, so its wash is moonlight — fixed at 260, the
+   * dark --bg's own hue, nearly drained of chroma. The clock still moves both.
+   * Tuned per theme, not symmetrically: the same wash multiplies a near-black
+   * page and merely tints a near-white one. DESIGN.md, "Light". */
   --wash: light-dark(oklch(76% 0.15 var(--hue) / calc(var(--glow) * 0.15)),
-                     oklch(64% 0.11 var(--hue) / calc(var(--glow) * 0.17)));
+                     oklch(68% 0.045 260 / calc(var(--glow) * 0.17)));
 
   /* The one theme-varying value that isn't a colour — see below. */
   --shot-filter: none;

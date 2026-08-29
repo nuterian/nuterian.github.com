@@ -66,6 +66,8 @@ const LIGHT_KEYS = [ // [hour, azimuth°, elevation, power]
   [24,    -90, 0.55, 0.45],
 ];
 
+const MOON = 260;   // the dark theme's own background hue — see --bg
+
 export function lightAt(date = new Date(), dark = false, hue = hueAt(date)) {
   const h = date.getHours() + date.getMinutes() / 60;
   let i = 0;
@@ -82,8 +84,12 @@ export function lightAt(date = new Date(), dark = false, hue = hueAt(date)) {
     // moonlight reads as moonlight because it is cool, not because it is
     // faint. The term is 1 at full sun, so daylight is untouched.
     glow: (0.55 + 0.45 * power) * (0.45 + 0.55 * elev),
-    // Lit colour: the flock's own hue, opened up. Day saturates it, moonlight
-    // drains it to silver — one formula, the theme flip mirroring flockColor.
-    tint: oklch(dark ? 0.76 + 0.18 * power : 0.42 + 0.22 * power, 0.04 + 0.09 * power, hue),
+    // Lit colour. The THEME says which light you are under: a light page is
+    // daylit, and takes the hour's own hue — rose at dawn, gold at noon. A dark
+    // page is a night page, and its light is the moon, which is one colour at
+    // every hour: the dark background's own 260, cool and nearly drained of
+    // chroma. The clock still says where that light is and how hard it rakes.
+    tint: dark ? oklch(0.80 + 0.11 * power, 0.03 + 0.02 * power, MOON)
+               : oklch(0.42 + 0.22 * power, 0.04 + 0.09 * power, hue),
   };
 }
