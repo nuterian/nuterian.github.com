@@ -3,14 +3,14 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { Flock, STEP, MARK, MARK_ASPECT } from '../js/flock.js';
 
-// The canvas box, matching style.css (#flock: viewport + 90px bleed). Only
+// The canvas box, matching style.css (#flock: viewport + 60px bleed). Only
 // the mark's SIZE is set here (== main.js homeSize()) — WHERE it sits is the
 // placement solver's job, same as at runtime: it finds the whitespace above
 // the hero text obstacle and glides there on its own over the 900 steps below.
-const W = 1620, H = 1080;
-const f = new Flock({ width: W, height: H, count: 200, seed: 2013 });
+const W = 1560, H = 1020;
+const f = new Flock({ width: W, height: H, count: 140, seed: 2013 });
 const bw = Math.min(W * 0.42, 620);
-f.obstacles = [{ x: 100, y: 690, w: 560, h: 260 }]; // roughly the hero text
+f.obstacles = [{ x: 70, y: 660, w: 560, h: 260 }]; // roughly the hero text
 f.setHome(MARK, MARK_ASPECT, { w: bw, h: bw / MARK_ASPECT });
 for (let i = 0; i < 900; i++) f._step(STEP);
 

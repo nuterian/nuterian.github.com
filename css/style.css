@@ -153,9 +153,11 @@ img, svg { display: block; max-width: 100%; height: auto; }
 /* --- The flock's canvas, and the still for when there's no script -------- */
 /* The birds live in the VIEWPORT, not on the page: the canvas is fixed, and
  * the content scrolls through their world (the worker offsets it by the
- * scroll position). It bleeds 90px past every edge so a bird can leave the
+ * scroll position). It bleeds 60px past every edge so a bird can leave the
  * visible page, turn around off-stage, and come back — no visible rebounds.
- * DPR ≤ 1.5 keeps the layer cheap.
+ * The bleed is pure off-screen paint the compositor still pays for, so it is
+ * as small as the exit still reading naturally allows; with DPR ≤ 1.5 that
+ * keeps the layer cheap.
  *
  * It sits ABOVE the page content (z-index higher than .hero/main/footer):
  * the content is a soft field the birds are nudged away from, not a wall,
@@ -164,9 +166,9 @@ img, svg { display: block; max-width: 100%; height: auto; }
  * it. pointer-events stay none, so it's invisible to clicks and hover. */
 #flock, .still {
   position: fixed;
-  top: -90px; left: -90px;
-  width: calc(100vw + 180px);
-  height: calc(100svh + 180px);
+  top: -60px; left: -60px;
+  width: calc(100vw + 120px);
+  height: calc(100svh + 120px);
   z-index: 2; pointer-events: none;
 }
 .still { color: var(--flock); }

@@ -43,7 +43,7 @@
  * a nudge, deliberately too weak to trap anyone (a field that can win a
  * tug-of-war creates standing equilibria: queues of not-stuck birds).
  *
- * The world is the VIEWPORT (plus a 90 px bleed): the canvas is fixed, and
+ * The world is the VIEWPORT (plus a 60 px bleed): the canvas is fixed, and
  * the content rectangles live in document coordinates that the worker
  * offsets by the scroll position (one tiny message per scrolled frame; no
  * layout reads).
@@ -799,9 +799,18 @@ export class Flock {
 export class GLPainter {
   static try(canvas) {
     try {
-      // No MSAA: the fragment shader feathers the quad edges itself, which is
-      // cheaper than a multisampled framebuffer on weak GPUs.
-      const opts = { alpha: true, antialias: false, powerPreference: 'low-power', premultipliedAlpha: true };
+      // No MSAA (the fragment shader feathers its own edges), no depth, no
+      // stencil: flat strokes want a bare colour buffer, and every buffer not
+      // allocated is bandwidth the compositor never spends. desynchronized
+      // lets the browser skip a compositor copy where it can.
+      // failIfMajorPerformanceCaveat is the important one: it refuses a
+      // SOFTWARE GL context (SwiftShader — blocklisted GPUs, many VMs). On
+      // those machines "WebGL" is the slow path — measured headless: 23
+      // draws/s against a 60 Hz rAF, while the Canvas 2D fallback keeps up —
+      // so failing over to 2D is not a degradation, it is the fix.
+      const opts = { alpha: true, antialias: false, depth: false, stencil: false,
+        desynchronized: true, failIfMajorPerformanceCaveat: true,
+        powerPreference: 'low-power', premultipliedAlpha: true };
       const gl = canvas.getContext('webgl2', opts) || canvas.getContext('webgl', opts);
       if (!gl) return null;
       const ext = gl.vertexAttribDivisor ? null : gl.getExtension('ANGLE_instanced_arrays');

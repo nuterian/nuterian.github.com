@@ -81,7 +81,7 @@ fallback. The main thread only sends small messages (pointer, where home is).
   ahead, with clearance that grows with speed — two birds on crossing paths veer around
   each other rather than phasing through, and alignment folds neighbours' motion into
   every turn.
-- **Edges are off-stage, not walls.** The canvas bleeds 90 px past every viewport edge
+- **Edges are off-stage, not walls.** The canvas bleeds 60 px past every viewport edge
   and nothing pulls a bird back until it leaves the canvas entirely — so birds exit the
   visible page, turn around out of sight, and re-enter naturally. No visible rebounds.
 - **The birds live in the viewport, and the compositor scrolls the page past them.** The
@@ -92,7 +92,10 @@ fallback. The main thread only sends small messages (pointer, where home is).
   bird may briefly reach 1.35× its own limit, a roaming one 1.15× — nothing ever
   teleports, on hover, scroll or a mark relocating. Steering (turn rate) is capped by
   `maxForce`, so all motion is progressive.
-- **Count:** 200 on desktop, 70 on phones — fixed. Never adapted behind your back.
+- **Count:** 140 on desktop, 60 on phones (150/60 on the 404) — fixed. Never adapted
+  behind your back. 140 is the floor at which the mark still reads (120 goes patchy);
+  the mark has 208 points, so not every point gets a bird, and that is fine — a flock
+  suggests the shape, it does not stipple it.
 - **Timestep:** fixed 1/60 s with an accumulator, so 30, 60 and 120 Hz screens see the same
   behaviour; frames where no step ran are not redrawn (a 120 Hz display renders 60, not
   120). Neighbour search is a uniform grid keyed by perception radius; the hot loops
@@ -188,7 +191,15 @@ Compute is never the cost. The costs that were real, in the order we found them:
    for 1.25 px shader-feathered strokes), and the canvas draws only when a sim step ran.
 4. **Adaptive density was the disease, not the cure**: it read a depressed frame rate and
    thinned the mark. Gone — the count you ask for is the count you get.
-5. **The fixed timestep beating against vsync.** The simulation ticks at exactly 60 Hz and
+5. **The renderer must refuse a software GL context.** `failIfMajorPerformanceCaveat`
+   is set on the WebGL request: on machines where "WebGL" means SwiftShader (blocklisted
+   GPUs, most VMs, headless), the GL path managed 23 draws/s against a 60 Hz rAF while
+   the Canvas 2D fallback keeps pace — on those machines 2D is not the degradation, it
+   is the fix. Real GPUs are unaffected. The context also declines the buffers it never
+   uses (`depth: false, stencil: false`) and asks for `desynchronized`, and the canvas
+   bleed shrank 90 → 60 px — the bleed is off-screen paint the compositor pays for at
+   full price, ~12 % of the layer at 1440×900.
+6. **The fixed timestep beating against vsync.** The simulation ticks at exactly 60 Hz and
    so does the display — but rAF timestamps carry sub-millisecond noise, and a plain
    accumulator turns that noise into an alternating beat. Replaying 479 real rAF deltas
    captured from a 60 Hz screen through `advance()`: only **49.5 %** of frames took one
@@ -199,7 +210,7 @@ Compute is never the cost. The costs that were real, in the order we found them:
    already within 12 % of a whole number of steps simply *is* that many steps, with 120 Hz
    and genuinely slow frames still falling through to the accumulator. Now 100 % of frames
    take exactly one. `tools/flight.mjs` keeps it that way.
-6. **A hover that animated `padding-left`**: the archive row nudged its content right by
+7. **A hover that animated `padding-left`**: the archive row nudged its content right by
    animating padding, which re-solved the row's four-column grid on every frame of the
    450 ms — the last layout work in a page that otherwise never reflows after load.
    Measured with Chrome's own `LayoutCount`: 43 layouts per hover in-and-out, against 2

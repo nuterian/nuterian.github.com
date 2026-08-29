@@ -74,7 +74,7 @@ function measureWorld() {
   world = { w: Math.max(1, Math.round(r.width)), h: Math.max(1, Math.round(r.height)) };
   return world;
 }
-// The content walls, in document(+bleed) space — sent once per layout; the
+// The content walls, in document(+60px bleed) space — sent once per layout; the
 // worker subtracts the live scroll offset, so scrolling reads no layout.
 function sendObstacles() {
   const wide = vw() >= 700;
@@ -82,7 +82,7 @@ function sendObstacles() {
     .filter(el => wide || !el.dataset.obstacleWide)
     .map(el => {
       const r = el.getBoundingClientRect();
-      return { x: r.left + 90, y: r.top + scrollY + 90, w: r.width, h: r.height };
+      return { x: r.left + 60, y: r.top + scrollY + 60, w: r.width, h: r.height };
     });
   post({ type: 'obstacles', rects });
 }
@@ -91,7 +91,7 @@ function sendObstacles() {
 const dpr = () => (params.has('fdpr') ? +params.get('fdpr') : Math.min(1.5, devicePixelRatio || 1));
 const vw = () => innerWidth;
 const coarse = matchMedia('(pointer: coarse)').matches;
-const TARGET = params.has('n') ? +params.get('n') : (coarse || innerWidth < 700 ? 70 : 200);
+const TARGET = params.has('n') ? +params.get('n') : (coarse || innerWidth < 700 ? 60 : 140);
 const seed = params.has('seed') ? +params.get('seed') : undefined;
 const month = new Date().getMonth();
 const season = params.get('season') || (month === 11 ? 'snow' : null);
