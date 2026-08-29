@@ -148,9 +148,20 @@ twitching tick mark, not a bird.
   pointing backwards: the flare, wings forward and spread) and `bank`. Every transition is
   therefore a blend by construction, and a bird powering out of a glide picks the stroke up
   wherever the wing happened to be. The four gaits you can see in
-  `tools/out/wingbeat.png` — a quick shallow flutter holding station on the mark, a deep
-  full-power beat fleeing the pointer, a held glide out on a lap, and the flare coming
-  home — are all the same six lines of arithmetic at different values.
+  `tools/out/wingbeat.png` — wings held on the mark, a deep full-power beat fleeing the
+  pointer, a held glide out on a lap, and the flare coming home — are all the same six
+  lines of arithmetic at different values.
+- **A roost is not a shimmer.** The first version gave a settled bird a permanent floor of
+  stroke depth and, worse, beat *faster* the slower it flew, on the theory that holding
+  station is work. That came out at 7.2 Hz — a full wingbeat every 8.3 frames, on 183 birds
+  at once, with the tips travelling 1.29 px a frame on a bird whose whole half-span is
+  5.2 px. Uniformly, forever: only 2.5 % of frames had the wings anywhere near still. It
+  read as a flicker, which is exactly what it was. A settled bird now **holds** its wings
+  and gives a short flap every few seconds, on its own personal clock (period from its
+  opacity, offset from its phase, so no two birds beat together and nothing needs a random
+  number). Median tip travel is 0.13 px a frame and 57 % of frames are near-still, while
+  the tail still reaches 3.1 px — held, but not stuffed. `flight.mjs` gates it from both
+  sides, because a bird with its wings nailed on would pass a one-sided check.
 - **Flap-flap-glide falls out.** `drive` subtracts the stretches where a bird is fast and
   asking nothing of the air, so a roamer flaps through the turns of its ring and glides the
   straights without anything telling it to. Thrust alone was not enough to drive this: the
@@ -240,9 +251,11 @@ years, captions, links, footer. `tnum` for numbers; `hanging-punctuation`;
 
 One tall page. Hero is a full viewport (`100dvh`, safe-area aware), text bottom-left, the
 flock owns the rest; the hero text recedes on scroll (scroll-driven animation). Archive
-below: numbered rows (name · medium in mono), 56 px tall, hairline rules. Footer:
-“Handcrafted by Jugal, 2013 → 2026 · previous version”. The arrow fades in the first
-time it scrolls into view.
+below: numbered rows (name · medium in mono), 56 px tall, hairline rules. Footer: the
+dateline “2013 → 2026” and the theme dot, nothing else. The arrow fades in the first
+time it scrolls into view. The 2013 site is still preserved at `/2013/` and its
+screenshots still come from there, but nothing links to it any more — the archive
+sheets are how you see it now.
 
 **One interactive grammar.** Every control answers a pointer in one of two ways, and both
 are written once in `css/style.css` rather than per control:

@@ -100,8 +100,12 @@ export const DEFAULTS = {
                       //        (hovering on the mark is 8 px/s): hold, don't chase
   wing: 5.2,          // px — HALF-SPAN at full spread. One number, every bird, every
                       //      speed. Only the beat itself foreshortens it.
-  beatSlow: 2.6,      // Hz — wingbeat held in a glide
+  beatSlow: 1.1,      // Hz — wings HELD: a glide, or a bird settled on the mark.
+                      //      Not zero, so the hold still breathes.
   beatFast: 9.0,      // Hz — …and under full power
+  restFlap: 0.55,     // s — length of the occasional flap a settled bird gives
+  restEvery: 5.3,     // s — mean gap between them, ±2.3 s and personal, so the
+                      //     mark never beats in unison
   bank: 0.22,         // 0–1 — span a fully banked bird loses, seen from above
   fieldSwirl: 0.18,    // 0–1 — how much of the push is redirected to curve past corners
                       // (kept LOW: a strong tangential term is a curl field, and a
@@ -733,16 +737,26 @@ export class Flock {
       let push = (fx[i] * ux + fy[i] * uy) / p.maxForce;
       let thrust = push > 0 ? push : 0; if (thrust > 1) thrust = 1;
       let brake = push < 0 ? -push : 0; if (brake > 1) brake = 1;
-      let hover = 1 - sp / 30; if (hover < 0) hover = 0;
       const si = mode === 'snow' ? 0 : st[i];   // snow has no states; it just falls
-      const base = si === 1 ? 1.35 : si === 2 ? 0.42 : 0.30;
+      let base;
+      if (si === 1) base = 1.35;
+      else if (si === 2) base = 0.42;
+      else {
+        // Settled: wings HELD, with a short flap now and then. This used to be a
+        // flat 0.30 of stroke depth at 7.2 Hz — a beat every 8 frames, on every
+        // bird, forever, which is not a roost but a shimmer. Each bird now has its
+        // own gap and its own offset, so the mark never beats in unison, and the
+        // smoothing on ef turns each burst into a swell rather than a switch.
+        const per = p.restEvery + (this.op[i] - 0.775) * 10;   // 3.1…7.6 s, personal
+        const u = t / per + this.ph[i] * 0.159;                // ph/TAU: a phase offset
+        base = (u - Math.floor(u)) * per < p.restFlap ? 0.72 : 0.04;
+      }
       let drive = base + 0.55 * thrust + 0.30 * brake - 0.42 * fastn * (1 - thrust);
       if (drive > 1) drive = 1; else if (drive < 0) drive = 0;
       ef[i] += (drive - ef[i]) * 0.10;      // ≈0.16 s to settle: gait changes over
       br[i] += (brake - br[i]) * 0.08;      // a few beats, never instantly
       bk[i] += (d / limMax - bk[i]) * 0.12;
-      // Hovering beats FASTER, not deeper — that keeps the mark crisp.
-      fp[i] += (p.beatSlow + beatSpan * ef[i] + 3.2 * hover) * TAU * dt * tempo;
+      fp[i] += (p.beatSlow + beatSpan * ef[i]) * TAU * dt * tempo;
       if (fp[i] > TAU) fp[i] -= TAU;
     }
 

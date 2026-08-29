@@ -8,6 +8,9 @@
 //               Wing length used to scale with velocity: 2.3× longer sprinting.
 //   wingbeat  — every bird's beat actually advances. The phase used to be set
 //               once at birth and never touched, so nothing ever flapped.
+//   repose    — a bird settled on the mark HOLDS its wings and flaps now and
+//               then. It used to beat at 7.2 Hz forever — one cycle every 8
+//               frames on 183 birds at once, which reads as a shimmer.
 //   pacing    — one simulation step per displayed frame. Real rAF deltas beat
 //               against the fixed 60 Hz step: half the frames were wrong.
 //
@@ -28,6 +31,8 @@ const budget = {
   turnMax: 400,     // °/s — a hard ceiling on how fast any bird may swing round
   spanSpread: 3,    // % — most the slowest birds' full spread may differ from the fastest'
   beatOctants: 6,   // of 8 — how much of the beat circle every bird must visit in 2 s
+  reposeP50: 0.35,  // px — median wing-tip travel per frame for a settled bird…
+  reposeP99: 0.80,  // px — …but it must still flap sometimes, or it is a corpse
   pacedFrames: 98,  // % of real frames that must take exactly one step
 };
 let fail = 0;
@@ -103,6 +108,33 @@ for (let s = 0; s < 12 * 60; s++) {
   for (let i = 0; i < N; i++) if (octants[i].size < worst) { worst = octants[i].size; worstAt = i; }
   line(worst < budget.beatOctants, 'wingbeat · phase advances',
     `least-beating bird visited ${worst}/8 octants in 2 s (≥ ${budget.beatOctants}) [#${worstAt}]`);
+}
+
+// --- repose -----------------------------------------------------------------
+// Settled birds, left alone. Two-sided on purpose: the median says they are at
+// rest, the tail says they are not frozen. A continuous flutter fails the first,
+// a bird with its wings nailed on fails the second.
+{
+  const g = new Flock({ width: W, height: H, count: 200, seed: 7 });
+  g.setHome(MARK, MARK_ASPECT, { w: bw, h: bw / MARK_ASPECT });
+  for (let i = 0; i < 60 * 60; i++) g._step(STEP);          // a full minute to settle
+  const home = []; for (let i = 0; i < g.n; i++) if (g.st[i] === 0) home.push(i);
+  const prevT = new Float32Array(g.n * 4);
+  g.geometry(); prevT.set(g._tips);
+  const move = [];
+  for (let s = 0; s < 12 * 60; s++) {                        // longer than the longest gap
+    g._step(STEP); g.geometry();
+    for (const i of home) {
+      const o = i * 4;
+      let d = 0; for (let k = 0; k < 4; k++) d += Math.abs(g._tips[o + k] - prevT[o + k]);
+      move.push(d);
+    }
+    prevT.set(g._tips);
+  }
+  const p50 = pct(move, 0.5), p99 = pct(move, 0.99);
+  const still = move.filter(d => d < 0.15).length / move.length * 100;
+  line(p50 > budget.reposeP50 || p99 < budget.reposeP99, 'repose · on the mark',
+    `wing-tip travel p50 ${p50.toFixed(2)} px/frame (≤ ${budget.reposeP50}) · p99 ${p99.toFixed(2)} (≥ ${budget.reposeP99}) · ${still.toFixed(0)}% of frames near-still, ${home.length} birds`);
 }
 
 // --- pacing -----------------------------------------------------------------
