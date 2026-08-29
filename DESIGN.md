@@ -92,10 +92,20 @@ fallback. The main thread only sends small messages (pointer, where home is).
   bird may briefly reach 1.35× its own limit, a roaming one 1.15× — nothing ever
   teleports, on hover, scroll or a mark relocating. Steering (turn rate) is capped by
   `maxForce`, so all motion is progressive.
-- **Count:** 140 on desktop, 60 on phones (150/60 on the 404) — fixed. Never adapted
+- **Count:** 140 on desktop, 120 on phones (150/120 on the 404) — fixed. Never adapted
   behind your back. 140 is the floor at which the mark still reads (120 goes patchy);
   the mark has 208 points, so not every point gets a bird, and that is fine — a flock
   suggests the shape, it does not stipple it.
+- **The mark is sized in bird-widths, not screen fractions.** A bird is one fixed size
+  everywhere, so a mark holding a constant 42 % of the canvas is ~119 birds across on a
+  desktop and only ~41 across on a phone — at which width the strokes cannot separate and
+  the *jm* collapses into a blob however many birds you add. Phones therefore give the mark
+  a much larger share (66 %) of a much smaller canvas, sized to still clear the viewport on
+  a 320 px screen. Raising the phone count alone only turns a sparse blob into a dense one.
+- **Bird count is free; canvas area is not.** Measured on a throttled phone (iPhone 13
+  emulation at 4× and 6× CPU): 60, 90, 120, 140 and 200 birds all hold 60 draws/s with zero
+  frames over 20 ms. The phone count sat at 60 for no benefit that could be measured — the
+  cost of this page has always been the compositor's canvas layer, not the simulation.
 - **Timestep:** fixed 1/60 s with an accumulator, so 30, 60 and 120 Hz screens see the same
   behaviour; frames where no step ran are not redrawn (a 120 Hz display renders 60, not
   120). Neighbour search is a uniform grid keyed by perception radius; the hot loops

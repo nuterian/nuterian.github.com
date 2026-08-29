@@ -28,7 +28,7 @@ const post = m => runner.handle(m);
 // The world is the canvas's own box (style.css sizes it), not the viewport:
 // a full-viewport canvas is a layer the compositor cannot afford per frame.
 const world = () => { const r = canvas.getBoundingClientRect(); return { w: Math.max(1, Math.round(r.width)), h: Math.max(1, Math.round(r.height)) }; };
-post({ type: 'init', dpr, ...world(), count: coarse ? 60 : 150, still: reduce });
+post({ type: 'init', dpr, ...world(), count: coarse ? 120 : 150, still: reduce });
 post(style());
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => post(style()));
 

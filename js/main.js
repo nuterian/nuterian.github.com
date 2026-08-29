@@ -115,7 +115,7 @@ function sendObstacles() {
 const dpr = () => (params.has('fdpr') ? +params.get('fdpr') : Math.min(1.5, devicePixelRatio || 1));
 const vw = () => innerWidth;
 const coarse = matchMedia('(pointer: coarse)').matches;
-const TARGET = params.has('n') ? +params.get('n') : (coarse || innerWidth < 700 ? 60 : 140);
+const TARGET = params.has('n') ? +params.get('n') : (coarse || innerWidth < 700 ? 120 : 140);
 const seed = params.has('seed') ? +params.get('seed') : undefined;
 const month = new Date().getMonth();
 const season = params.get('season') || (month === 11 ? 'snow' : null);
@@ -246,9 +246,15 @@ function onTilt(e) {
 // screen and glides the mark there; see flock.js). So there is nothing to
 // recompute on scroll from this side at all — one message at startup, and
 // one again if the viewport resizes and the ideal size changes.
+// The mark is sized in BIRD-WIDTHS, not in screen fractions. A bird is one
+// fixed size everywhere (flight.mjs holds it there), so a mark that takes a
+// constant 42% of the canvas is ~119 birds across a desktop and only ~41
+// across a phone — at which point the strokes cannot separate and the jm
+// collapses into a blob however many birds you throw at it. Phones therefore
+// give the mark a much larger share of a much smaller canvas.
 function homeSize() {
-  const { w, h } = world;
-  const bw = Math.min(w * 0.42, 620);
+  const { w } = world;
+  const bw = Math.min(w * (vw() < 700 ? 0.66 : 0.42), 620);
   return { w: bw, h: bw / MARK_ASPECT };
 }
 function sendHome() { post({ type: 'home', points: MARK, aspect: MARK_ASPECT, size: homeSize() }); }
