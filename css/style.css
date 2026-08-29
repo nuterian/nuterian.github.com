@@ -61,6 +61,16 @@
     0 1px 2px      light-dark(oklch(0% 0 0 / 0.06), oklch(0% 0 0 / 0.3)),
     0 12px 40px -12px light-dark(oklch(0% 0 0 / 0.25), oklch(0% 0 0 / 0.7));
 
+  /* The light of the hour (main.js: applyLight, from hue.js: lightAt). Written
+   * here so the page still looks lit with no script at all — these defaults are
+   * a mid-morning sun, which is where the wash sits before JS says otherwise. */
+  --light-x: 22%; --light-y: 2%; --glow: 0.7;
+  /* The wash's colour is the hour's own hue, so daylight is gold and the small
+   * hours are blue without a second palette. --glow scales its alpha: the wash
+   * is ambient light, and there is less of it at night. */
+  --wash: light-dark(oklch(85% 0.13 var(--hue) / calc(var(--glow) * 0.13)),
+                     oklch(62% 0.10 var(--hue) / calc(var(--glow) * 0.16)));
+
   /* The one theme-varying value that isn't a colour — see below. */
   --shot-filter: none;
   --shot-filter-night: brightness(.88);
@@ -181,6 +191,28 @@ img, svg { display: block; max-width: 100%; height: auto; }
  * still instead of to nothing. */
 .flock-on .still { display: none; }
 .still polyline { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.25; }
+
+/* --- The wash: sunlight on the page, moonlight after dark ---------------- */
+/* One fixed bloom, sitting where the light is (--light-x/y, set by the clock).
+ * At z-index 0 it is under every content layer and over the page background,
+ * which keeps --bg the colour every contrast ratio is still measured against.
+ *
+ * It breathes on `transform` and `opacity` ONLY: those are compositor
+ * properties, so the gradient itself is rasterised once and never repainted —
+ * a radial-gradient that animated its own stops would repaint a full-viewport
+ * layer for 45 s at a time. The amplitude is a few percent on purpose. */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(58% 52% at var(--light-x) var(--light-y), var(--wash), transparent 70%);
+}
+/* Wrapped in no-preference rather than left to the global reduced-motion
+ * override at the foot of this file: that override sets animation-duration to
+ * .01ms, which does not stop an infinite animation — it restarts it forever. */
+@media (prefers-reduced-motion: no-preference) {
+  body::before { animation: wash-breathe 45s var(--ease-in-out) infinite; }
+}
+@keyframes wash-breathe { 50% { transform: scale(1.05) translateY(1.5%); opacity: .9; } }
 
 /* Content sits below the flock but above the page background. */
 .hero, main, .site-footer { position: relative; z-index: 1; pointer-events: none; }
@@ -344,4 +376,4 @@ dialog#sheet .sheet .close { display: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
 }
-@media print { #flock, .still, .site-footer .dot { display: none; } .sheet { display: block; } }
+@media print { #flock, .still, .site-footer .dot, body::before { display: none; } .sheet { display: block; } }

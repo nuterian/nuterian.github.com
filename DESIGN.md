@@ -250,6 +250,55 @@ Theme follows the system. `t` or the footer `·` cycles system → dark → ligh
 is computed in JS, not read from CSS (`js/hue.js` mirrors `--flock`), so `light-dark()` in
 the stylesheet never has to be parsed by script.
 
+### Light
+
+The clock has a second output. The same hours that set the hue also say where the light is
+(`js/hue.js`: `lightAt`, keyframed by hour and smoothstepped between keys, exactly like
+`hueAt`). The sun climbs from upper-left at dawn to overhead at noon and goes down
+upper-right; the moon takes the night hours on the same path. Two short twilights hand over
+between them at the horizon, dimmed almost to nothing, so the swing back across the sky is
+never something you can catch happening.
+
+`lightAt` returns five things: a screen-space **azimuth** (x right, y down, so −90° is
+straight up), an **elevation** (0 on the horizon, 1 overhead), a **glint** strength, a
+**glow** strength, and a **tint**.
+
+- **Glint follows elevation, inverted.** Raking light at dawn and dusk strikes a wing edge-on
+  and flashes off it; noon comes straight down on everything equally and barely glints at
+  all. `power · (0.15 + 0.85 · (1 − elev)^1.5)` — about 0.65 at 7am and 0.16 at noon, scaled
+  down again at night, because moonlight is dim as well as cool.
+- **Glow follows elevation directly.** The wash is *ambient* light, not raking, so there is
+  most of it at noon and least at 3am. The two curves pull opposite ways on purpose: the
+  page is brightest when the birds are flattest.
+- **The tint is the hour's own hue**, opened up — no second palette. Daylight lifts lightness
+  and saturates; moonlight lifts lightness and drains chroma to silver. The theme flip
+  mirrors `flockColor` exactly: `oklch(dark ? .76 + .18·power : .42 + .22·power, .04 +
+  .09·power, hue)`.
+
+**The wash** is one fixed pseudo-element (`body::before`) carrying a radial-gradient bloom,
+at `z-index: 0` — under every content layer, over the page background. `--bg` therefore
+stays the colour every contrast ratio is measured against, which is why the wash costs
+nothing in the axe run. Its position is `--light-x` / `--light-y` and its alpha is scaled by
+`--glow`; all three are set on `:root` by `main.js` on the hourly tick and on theme changes.
+They also have **defaults in pure CSS** (a mid-morning sun), so the page is lit with no
+script at all.
+
+It breathes over 45 s on `transform` and `opacity` **only**. Those are compositor
+properties: the gradient rasterises once and is never repainted. A gradient that animated
+its own stops would repaint a full-viewport layer for 45 s at a stretch, which is the one
+thing this page has spent its whole budget avoiding. The amplitude is a few percent.
+
+The breathe is wrapped in `@media (prefers-reduced-motion: no-preference)`, **not** left to
+the global reduced-motion override at the foot of the stylesheet. That override sets
+`animation-duration: .01ms`, which does not stop an infinite animation — it restarts it
+forever, several thousand times a second. (The archive arrow's bob hit this first; it is
+gated the same way.) Under reduced motion the computed `animation-name` is `none`, and the
+wash is a still. `@media print` hides it.
+
+**`?hour=`** pins the clock — for the hue *and* the light — so a tool's screenshot
+reproduces. `tools/og.mjs` pins `?hour=9` alongside `?still`, `?seed=` and reduced motion,
+and `og.png` is byte-identical run to run. `?hue=` still pins the accent on its own.
+
 ## Type
 
 Geist and Geist Mono, self-hosted, subset to ASCII + typographic punctuation
@@ -340,13 +389,13 @@ css/style.css
 js/main.js        the page
 js/flock.js       the simulation + renderer + frame loop (pure)
 js/flock.worker.js
-js/hue.js         hue of the day, OKLCH → sRGB
+js/hue.js         hue AND light of the day, OKLCH → sRGB
 js/mark.js        the 2013 mark as points
 js/404.js
 fonts/            subset Geist
 img/archive/      AVIF/WebP screenshots
 img/mark.svg      favicon, theme-aware
-img/og.png        generated from the site itself (?still&seed=2013)
+img/og.png        generated from the site itself (?still&seed=2013&hour=9)
 2013/             the previous site, untouched
 tools/            dev only: fonts, images, still, og, serve, check
 ```
