@@ -182,17 +182,26 @@ addEventListener('resize', () => {
     const { w, h } = measureWorld();
     post({ type: 'resize', dpr: dpr(), w, h });
     post({ type: 'home-size', size: homeSize() });
+    post({ type: 'scroll', y: scrollOffset() });
     sendObstacles();
   });
 }, { passive: true });
 document.addEventListener('visibilitychange', () => post({ type: 'visible', value: !document.hidden }));
-// The birds' sky is fixed; the page scrolls through it. One tiny message per
-// scrolled frame — the worker does the subtraction, we read no layout here.
+// The birds' sky is fixed and the page scrolls through it — one tiny message
+// per scrolled frame, and the worker does the subtraction so we read no layout
+// here. Except on a phone, where style.css anchors the canvas to the document
+// and the sky scrolls away with the hero: the world does not move there, so the
+// offset is a constant 0 and the per-frame message is not sent at all.
+const heroBound = matchMedia('(max-width: 699px)');   // must match style.css
+const scrollOffset = () => (heroBound.matches ? 0 : scrollY);
 let scrollRaf = 0;
 addEventListener('scroll', () => {
-  if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; post({ type: 'scroll', y: scrollY }); });
+  if (heroBound.matches) return;
+  if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; post({ type: 'scroll', y: scrollOffset() }); });
 }, { passive: true });
-post({ type: 'scroll', y: scrollY });
+post({ type: 'scroll', y: scrollOffset() });
+// Crossing the breakpoint swaps which of the two the canvas is doing.
+heroBound.addEventListener('change', () => post({ type: 'scroll', y: scrollOffset() }));
 
 /* ---------------------------------------------------------------------------
  * 3. What you do

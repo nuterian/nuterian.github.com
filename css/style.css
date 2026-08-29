@@ -104,7 +104,12 @@
 
 /* --- Base ---------------------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+/* overflow-x lives HERE, not only on body, so that body's own value stops
+ * propagating to the viewport and body clips its own children instead. That
+ * matters for the phone canvas below: absolutely positioned and 120px wider
+ * than the screen, it would otherwise widen the document and make a phone
+ * shrink-to-fit the whole page (measured: a 390px viewport reporting 450). */
+html { -webkit-text-size-adjust: 100%; overflow-x: clip; }
 body {
   margin: 0;
   background: var(--bg);
@@ -114,6 +119,7 @@ body {
   -webkit-font-smoothing: antialiased;
   hanging-punctuation: first last;
   overflow-x: clip;
+  position: relative;   /* the containing block for the phone's hero canvas */
   transition: background-color .4s var(--ease-in-out), color .4s var(--ease-in-out);
 }
 ::selection { background: var(--accent-soft); color: var(--fg); }
@@ -188,6 +194,17 @@ img, svg { display: block; max-width: 100%; height: auto; }
   z-index: 2; pointer-events: none;
 }
 .still { color: var(--flock); }
+/* On a phone the flock belongs to the HERO, not to the viewport. The archive
+ * is full-width there — no margin, no whitespace — so a mark that followed you
+ * down the page would have no choice but to sit ON the rows you are reading.
+ * Anchored to the document instead, the canvas simply scrolls away with the
+ * hero it came from, and the archive is clean. The layer still scrolls on the
+ * compositor; it is the same box, just carried by the page instead of pinned
+ * against it. main.js stops subtracting the scroll offset to match (the world
+ * no longer moves), keyed off this very query. */
+@media (max-width: 699px) {
+  #flock, .still { position: absolute; }
+}
 /* The still yields to the canvas only once the flock is actually running —
  * `flock-on` is set by main.js AFTER the runner starts, not by the inline
  * `js` probe in index.html. Hiding it on `js` alone meant any failure in

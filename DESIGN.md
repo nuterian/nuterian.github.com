@@ -84,6 +84,17 @@ fallback. The main thread only sends small messages (pointer, where home is).
 - **Edges are off-stage, not walls.** The canvas bleeds 60 px past every viewport edge
   and nothing pulls a bird back until it leaves the canvas entirely — so birds exit the
   visible page, turn around out of sight, and re-enter naturally. No visible rebounds.
+- **On a phone the flock belongs to the hero, not to the viewport.** The archive is
+  full-width on a narrow screen — no margin, no whitespace — so a mark that followed you
+  down the page had nowhere to go but on top of the rows you were reading, and the
+  placement solver put it there: its overlap penalty is near-constant when the obstacle
+  covers everything, so the centre preference won. Under 700 px the canvas is therefore
+  `position: absolute`, anchored to the document, and simply scrolls away with the hero.
+  `main.js` stops subtracting the scroll offset to match — the world no longer moves, so
+  the per-frame scroll message is not sent at all there. `overflow-x: clip` had to move to
+  `html` and `body` become `position: relative` for this: an absolute canvas 120 px wider
+  than the screen otherwise widens the document and makes a phone shrink-to-fit the whole
+  page (measured: a 390 px viewport reporting 450).
 - **The birds live in the viewport, and the compositor scrolls the page past them.** The
   canvas is `position: fixed`; content rectangles and the mark's placement live in
   document coordinates that the worker offsets by the scroll position — one tiny message
