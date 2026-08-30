@@ -117,9 +117,21 @@ function sendObstacles() {
     });
   post({ type: 'obstacles', rects });
 }
-// 1.5x is plenty for 1.25 px strokes the shader already feathers, and it is
-// 1.8x less to composite than 2x. Nobody has ever spotted the difference.
-const dpr = () => (params.has('fdpr') ? +params.get('fdpr') : Math.min(1.5, devicePixelRatio || 1));
+// What the canvas costs is the number of device pixels the compositor moves
+// each frame — the layer's AREA, not the ratio. A phone's canvas is a quarter
+// of a desktop's in CSS px, so the flat 1.5 cap under-rendered exactly where
+// the screen is sharpest: a DPR-3 phone drew at 1.5 and was upscaled 2x, and
+// the birds went soft. So a small canvas may spend its ratio up until it costs
+// what a 1440x900 desktop always has. This is a FLOOR-RAISING rule, not a true
+// budget: 1.5 is still the minimum, so no large display renders worse than it
+// did (a 5K one is over PIX and stays where it was), and 2 is the maximum,
+// past which nothing shows on 1.25px strokes the shader already feathers.
+const PIX = 3.6e6;                     // ≈ a 1440x900 desktop at 1.5x — the reference
+const dpr = () => {
+  if (params.has('fdpr')) return +params.get('fdpr');
+  const area = Math.max(1, world.w * world.h);
+  return Math.min(devicePixelRatio || 1, 2, Math.max(1.5, Math.sqrt(PIX / area)));
+};
 const vw = () => innerWidth;
 const coarse = matchMedia('(pointer: coarse)').matches;
 const TARGET = params.has('n') ? +params.get('n') : (coarse || innerWidth < 700 ? 120 : 140);
