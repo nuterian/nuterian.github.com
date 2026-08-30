@@ -413,23 +413,33 @@ html:not(.js) .sheet:target {
 
 dialog#sheet {
   --sheet-top: 2.5rem;
+  /* The bar's height, and how much of it is dead space above the controls.
+   * On a phone that dead space carries the notch (`safe-area-inset-top`) plus
+   * a little of its own: full-bleed, the bar was landing hard against the top
+   * edge of the screen and, on a notched device, partly underneath it. */
+  --bar-extra: 0px;
+  --bar: calc(3.5rem + var(--bar-extra));
   width: min(100vw, 960px + 2 * var(--gutter)); max-width: none;
   height: calc(100dvh - var(--sheet-top)); max-height: none; margin: var(--sheet-top) auto 0;
-  padding: 3.5rem var(--gutter) var(--gutter);
+  padding: var(--bar) var(--gutter) var(--gutter);
   border: 0; border-radius: 6px 6px 0 0; background: var(--bg); color: var(--fg); overscroll-behavior: contain;
   box-shadow: var(--shadow);
 }
-@media (max-width: 700px) { dialog#sheet { --sheet-top: 0px; border-radius: 0; } }
+@media (max-width: 700px) {
+  dialog#sheet { --sheet-top: 0px; border-radius: 0; --bar-extra: calc(.85rem + env(safe-area-inset-top)); }
+}
 /* No backdrop paint: the page itself recedes, so the flock stays visible and a
  * few birds can perch on the sheet's top edge. */
+dialog#sheet:focus { outline: none; }   /* it is a container, not a control */
 dialog#sheet::backdrop { background: transparent; }
 .hero, main, .site-footer { transition: opacity .4s var(--ease-out); }
 .sheet-open .hero, .sheet-open main, .sheet-open .site-footer { opacity: .22; }
 dialog#sheet[open] { animation: sheet-in .45s var(--ease-out); }
 @keyframes sheet-in { from { opacity: 0; transform: translateY(12px); } }
 .sheet-bar {
-  position: sticky; top: -3.5rem; margin: -3.5rem calc(-1 * var(--gutter)) 0; padding: .5rem var(--gutter);
-  display: flex; align-items: center; gap: .5rem; min-height: 3.5rem; z-index: 2;
+  position: sticky; top: calc(-1 * var(--bar)); margin: calc(-1 * var(--bar)) calc(-1 * var(--gutter)) 0;
+  padding: calc(.5rem + var(--bar-extra)) var(--gutter) .5rem;
+  display: flex; align-items: center; gap: .5rem; min-height: var(--bar); z-index: 2;
   background: color-mix(in oklab, var(--bg) 94%, transparent);
   font-family: var(--mono); font-size: .8125rem; color: var(--muted);
 }

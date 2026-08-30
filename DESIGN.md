@@ -588,6 +588,23 @@ Each project's full-length 960 px screenshot (AVIF → WebP → the original PNG
   `scrollbar-gutter: stable` on `html` means losing the scrollbar doesn't reflow the page
   wider the moment a sheet opens (measured: archive width 832 px before and after). The
   no-JS `:target` path needs none of it — it covers the viewport outright.
+- **Opening a sheet focuses the sheet, not a button.** `showModal()` focuses the first
+  focusable thing it finds, which is `←` — so a sheet opened by tapping a row arrived with a
+  focus ring drawn around a control nobody had asked for. The dialog takes `tabindex="-1"`
+  and is focused itself (ARIA's own modal pattern): its name is announced, the trap and ESC
+  are untouched, and the first Tab still lands on `←` *with* its ring, because a keyboard
+  user has actually asked for one. `outline: none` on the dialog is safe here — it is a
+  container, not a control. A deep link (`/#unlistr`) opens the sheet while the page is
+  still loading and the following `load` hands focus back to `<body>`, leaving a screen
+  reader outside an open modal, so the focus is re-asserted once after the page settles.
+- **The bar clears the top of a phone.** Full-bleed (`--sheet-top: 0`) the bar was landing
+  hard against the top edge and, on a notched device, partly underneath it. The bar's height
+  is `--bar` and the dead space above its controls is `--bar-extra`, 0 on the desktop and
+  `.85rem + env(safe-area-inset-top)` on a phone; the dialog's top padding, the bar's
+  negative pull-up, its sticky `top` and its `min-height` are all written in terms of them,
+  so the whole assembly grows together and nothing has to be re-derived. Measured with a
+  59 px inset standing in for a Dynamic Island: the bar's background still starts at 0 (it
+  is what sits behind the status bar) and every control begins at 81 px.
 - **The steppers look as dead as they are.** At the first and last project ← and → were
   already `disabled` and did nothing, but looked identical to live ones, so the only
   feedback for pressing one was silence. They now fade to 0.3 rather than disappearing:

@@ -324,7 +324,20 @@ function openSheet(slug, { push = true } = {}) {
     sheet.append(node);
     sheetTitle.textContent = $(`.row[data-slug="${slug}"] .name`).textContent;
     sheet.setAttribute('aria-label', sheetTitle.textContent);
-    if (!sheet.open) sheet.showModal();
+    if (!sheet.open) {
+      sheet.showModal();
+      // showModal() focuses the first focusable thing it finds, which is the ←
+      // button — so a sheet opened by tapping a row arrived with a ring drawn
+      // round a control nobody asked for. Focus the dialog itself instead
+      // (ARIA's own modal pattern): the sheet's name is announced, the trap and
+      // ESC are unaffected, and the first Tab still lands on ←.
+      sheet.focus({ preventScroll: true });
+      // A deep link (/#unlistr) opens the sheet while the page is still
+      // loading, and the load that follows hands focus back to <body> — with a
+      // modal open, which leaves a screen reader standing outside it. Re-assert
+      // once, after the page has settled.
+      if (document.readyState !== 'complete') addEventListener('load', () => { if (sheet.open) sheet.focus({ preventScroll: true }); }, { once: true });
+    }
     root.classList.add('sheet-open');
     sheet.scrollTop = 0;
     current = slug;
