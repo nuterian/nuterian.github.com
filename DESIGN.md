@@ -428,6 +428,19 @@ something. It rides `translate` while the hover nudge stays on `transform`, beca
 compose and a running animation would otherwise outrank the hover outright. Archive
 below: numbered rows (name · medium in mono), 56 px tall, hairline rules.
 
+**The rows lift into place as they arrive** — `.rows .row`, on each row's own `view()`
+timeline over the first 20 % of its cover range, an 8 px `translate` and nothing else.
+Behind `@supports (animation-timeline: view())` and `no-preference`, exactly like the hero's
+recede; without either, the rows are simply where they belong. Two things it deliberately
+is not. It is not on the `li`: the li carries the hairline, and a rule that slid while its
+neighbour's stayed put would break the rhythm of the list, which is the one thing this
+section is made of. And **there is no fade**, though a fade was the first idea: `.name` has
+contrast to spare (17.5:1) but `.medium`, `.num` and `.arrow` are deliberately quiet greys
+at 6.17:1, whose floor for AA is opacity **0.87** — 13 % of headroom, measured. Any fade
+worth seeing spends contrast the page does not have, and axe says so, 21 nodes at a time.
+So the lift is the whole gesture: it costs no contrast, moves no layout, and if you are not
+looking for it you will not find it.
+
 ### Two tenses
 
 `Making` and `Archive` are the **same component**, twice. Same container, same hairline list,

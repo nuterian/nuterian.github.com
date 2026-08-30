@@ -317,6 +317,18 @@ h2 { font-size: 1rem; font-weight: 500; margin: 0; letter-spacing: -0.01em; }
 .meta { margin: 0; color: var(--muted); }
 .rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--hair); }
 .rows li { border-bottom: 1px solid var(--hair); }
+/* Each row lifts the last few pixels into place as it arrives, on its OWN
+ * timeline (`view()`) — no delay chain to fall out of step with the scroll.
+ * It moves the .row, not the li: the li carries the hairline, and a rule that
+ * shifted while its neighbour's didn't would break the list's rhythm. Nothing
+ * here is a layout property. No opacity — see DESIGN.md: the metadata columns
+ * are quiet greys with 13% of headroom over AA, and a fade spends it. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .rows .row { animation: row-in linear both; animation-timeline: view(); animation-range: cover 0% cover 20%; }
+    @keyframes row-in { from { translate: 0 8px; } }
+  }
+}
 .row {
   display: grid;
   grid-template-columns: 2.25rem 1fr auto 1.5rem;
