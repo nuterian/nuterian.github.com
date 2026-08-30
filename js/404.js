@@ -52,6 +52,14 @@ addEventListener('pointermove', e => {
 }, { passive: true });
 document.addEventListener('mouseleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
 addEventListener('pointerup', e => { if (e.pointerType === 'touch') post({ type: 'attract', x: e.clientX, y: e.clientY, r: 110, k: 1.6, life: 1.3 }); }, { passive: true });
-addEventListener('keydown', e => { if (e.key === 't') { const cur = root.dataset.theme || 'system'; const next = cur === 'system' ? 'dark' : cur === 'dark' ? 'light' : 'system'; if (next === 'system') { delete root.dataset.theme; localStorage.removeItem('theme'); } else { root.dataset.theme = next; localStorage.setItem('theme', next); } post(style()); } });
+addEventListener('keydown', e => {
+  if (e.key !== 't') return;
+  const cur = root.dataset.theme || 'system';
+  const next = cur === 'system' ? 'dark' : cur === 'dark' ? 'light' : 'system';
+  if (next === 'system') delete root.dataset.theme; else root.dataset.theme = next;
+  // Storage can be blocked; the switch must not die on remembering (as main.js).
+  try { next === 'system' ? localStorage.removeItem('theme') : localStorage.setItem('theme', next); } catch {}
+  post(style());
+});
 document.addEventListener('visibilitychange', () => post({ type: 'visible', value: !document.hidden }));
 console.log('%cflock%c looked for this page too. It isn\'t here.', 'font-weight:600', '');

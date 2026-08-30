@@ -80,8 +80,11 @@ function labelTheme(mode) {
   themeBtn.setAttribute('aria-label', `Theme: ${word}. Switch theme.`);
 }
 function setTheme(mode) { // 'system' | 'dark' | 'light'
-  if (mode === 'system') { delete root.dataset.theme; localStorage.removeItem('theme'); }
-  else { root.dataset.theme = mode; localStorage.setItem('theme', mode); }
+  if (mode === 'system') delete root.dataset.theme; else root.dataset.theme = mode;
+  // Remembering is best-effort: storage can be blocked outright (the inline
+  // restore in index.html guards its read for the same reason), and the
+  // switch itself must not die on the memo.
+  try { mode === 'system' ? localStorage.removeItem('theme') : localStorage.setItem('theme', mode); } catch {}
   labelTheme(mode);
   pushStyle();
 }
