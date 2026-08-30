@@ -62,6 +62,11 @@ export const STEP = 1 / 60;            // fixed simulation step
 const MAX_STEPS = 4;                   // per frame, before we drop time instead
 const TAU = Math.PI * 2, PI = Math.PI, DEG = Math.PI / 180;
 
+// Condensing the mark when the viewport has no rail for it (DESIGN.md).
+const FIT_STEPS = [1, 0.8, 0.64];      // a step or two, never continuous
+const FIT_SHRINK = 0.04, FIT_GROW = 0.008;  // shrink over, grow under — two, so it can't breathe
+const FIT_EVERY = 0.3, FIT_DWELL = 1.1;     // s: re-decide rate, and dwell after a step
+
 // Tunables. These are the "feel" — change with care and with a screenshot.
 export const DEFAULTS = {
   perception: 48,     // px — how far a boid can see its neighbours
@@ -203,6 +208,8 @@ export class Flock {
     this.homeBox = null;    // {x,y,w,h} view space — where it currently sits (animated)
     this._homeGoal = null;  // where the placement solver currently wants it
     this.homeLure = null;   // {x,y} view space — a spot to prefer over the centre
+    this.homeFit = 1;       // placement-driven condense factor — see _chooseFit
+    this._fitAt = 0;        // time of the next fit decision
     this._dv = { x: 0, y: 0 }; // desired-velocity scratch, reused per bird
     this.tempo = 1;         // global speed multiplier (dims when a sheet is open)
     this.setCount(opts.count || 120);
@@ -288,18 +295,18 @@ export class Flock {
   setHomeSize(size) {
     if (!this.home) return;
     this.home.size = size;
+    this._fitAt = 0;        // the requested size changed: re-decide the fit now
     this._assign(false);
   }
-  clearHome() { this.home = null; this.homeBox = null; this._homeGoal = null; this.tgt = null; this.homeLure = null; }
+  clearHome() { this.home = null; this.homeBox = null; this._homeGoal = null; this.tgt = null; this.homeLure = null; this.homeFit = 1; }
 
-  // Find the best place for the mark box in the current viewport: least
-  // overlap with content (view space), fully on-canvas, gently preferring
-  // the viewport's visual centre. Coarse grid, then a few refinement rings.
-  // Hysteresis keeps the current spot unless a new one is clearly better,
-  // so near-ties never make the mark hop. ~60 candidates × a handful of
-  // rects — microseconds, run at most ~7×/s while scrolling.
-  _placeHome() {
-    const S = this.home?.size; if (!S) return;
+  // Find the best place for a mark box of size S in the current viewport:
+  // least overlap with content (view space), fully on-canvas, gently
+  // preferring the viewport's visual centre. Coarse grid, then a few
+  // refinement rings. Hysteresis keeps the current spot unless a new one is
+  // clearly better, so near-ties never make the mark hop — `raw` skips it,
+  // for the what-if solves that choose the size. ~60 candidates, microseconds.
+  _solveHome(S, raw = false) {
     const M = 34;                       // breathing room around the mark
     const w = this.w, h = this.h, scroll = this.scroll;
     const bw = S.w + 2 * M, bh = S.h + 2 * M;
@@ -343,11 +350,54 @@ export class Flock {
       stepX /= 2; stepY /= 2;
     }
     // Hysteresis stops near-ties hopping; a lure is a request, not a tie.
-    if (this._homeGoal && !this.homeLure) {
+    if (!raw && this._homeGoal && !this.homeLure) {
       const cur = score(this._homeGoal.x + S.w / 2, this._homeGoal.y + S.h / 2);
       if (cur <= bestPen * 1.15 + 2500) { bcx = this._homeGoal.x + S.w / 2; bcy = this._homeGoal.y + S.h / 2; }
     }
-    this._homeGoal = { x: bcx - S.w / 2, y: bcy - S.h / 2, w: S.w, h: S.h };
+    return { cx: bcx, cy: bcy };
+  }
+
+  // What fraction of the mark itself — not the padded box the solver scores —
+  // stands on content here: the box the birds fill is the one seen to overlap.
+  _homeCover(cx, cy, S) {
+    const x0 = cx - S.w / 2, y0 = cy - S.h / 2, scroll = this.scroll;
+    let a = 0;
+    for (const o of this.obstacles) {
+      const ix = Math.min(x0 + S.w, o.x + o.w) - Math.max(x0, o.x);
+      const iy = Math.min(y0 + S.h, o.y + o.h - scroll) - Math.max(y0, o.y - scroll);
+      if (ix > 0 && iy > 0) a += ix * iy;
+    }
+    return a / (S.w * S.h);
+  }
+
+  // Pick the size the mark can wear here: down when the solver's *best*
+  // placement still leaves it on the words, back up only when the size up
+  // would be clear. Placement only — nothing here changes how a bird flies.
+  _chooseFit(req) {
+    // A lure is already a deliberate condense: compose by the smaller of the
+    // two, never by multiplying (0.42 lured, not 0.42²).
+    if (this.homeLure) { this.homeFit = 1; return 1; }
+    if (this.time < this._fitAt) return this.homeFit;
+    this._fitAt = this.time + FIT_EVERY;
+    const i = Math.max(0, FIT_STEPS.indexOf(this.homeFit));
+    const coverAt = (k) => {
+      const f = FIT_STEPS[k], S = { w: req.w * f, h: req.h * f };
+      const { cx, cy } = this._solveHome(S, true);
+      return this._homeCover(cx, cy, S);
+    };
+    let next = i;
+    if (coverAt(i) > FIT_SHRINK) { if (i < FIT_STEPS.length - 1) next = i + 1; }
+    else if (i > 0 && coverAt(i - 1) <= FIT_GROW) next = i - 1;
+    if (next !== i) { this.homeFit = FIT_STEPS[next]; this._fitAt = this.time + FIT_DWELL; this._assign(false); }
+    return this.homeFit;
+  }
+
+  _placeHome() {
+    const req = this.home?.size; if (!req) return;
+    const f = this._chooseFit(req);
+    const S = f === 1 ? req : { w: req.w * f, h: req.h * f };
+    const { cx, cy } = this._solveHome(S);
+    this._homeGoal = { x: cx - S.w / 2, y: cy - S.h / 2, w: S.w, h: S.h };
     if (!this.homeBox) this.homeBox = { ...this._homeGoal };
   }
 
@@ -431,8 +481,8 @@ export class Flock {
     if (!this.tgt || this.tgt.length !== this.n * 2) this.tgt = new Float32Array(this.n * 2);
     for (let i = 0; i < this.n; i++) {
       const k = this.order[i % m];
-      this.tgt[i * 2] = (pts[k * 2] / 100) * h.size.w;
-      this.tgt[i * 2 + 1] = (pts[k * 2 + 1] / 100) * h.size.h;
+      this.tgt[i * 2] = (pts[k * 2] / 100) * h.size.w * this.homeFit;
+      this.tgt[i * 2 + 1] = (pts[k * 2 + 1] / 100) * h.size.h * this.homeFit;
     }
   }
 
@@ -1041,7 +1091,7 @@ export class Runner {
       case 'gravity': if (f) { f.gravity.x = m.x; f.gravity.y = m.y; } break;
       case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(120); } break;
       case 'scroll': if (f) f.scroll = m.y; break;
-      case 'snapshot': this.onsnapshot?.({ x: [...f.x], y: [...f.y], vx: [...f.vx], vy: [...f.vy], st: [...f.st], scroll: f.scroll, obstacles: f.obstacles, homeBox: f.homeBox ? { ...f.homeBox } : null, w: f.w, h: f.h }); break;
+      case 'snapshot': this.onsnapshot?.({ x: [...f.x], y: [...f.y], vx: [...f.vx], vy: [...f.vy], st: [...f.st], scroll: f.scroll, obstacles: f.obstacles, homeBox: f.homeBox ? { ...f.homeBox } : null, homeFit: f.homeFit, w: f.w, h: f.h }); break;
       case 'home': f?.setHome(m.points, m.aspect, m.size); if (this.still) this.settle(); break;
       case 'home-size': f?.setHomeSize(m.size); if (this.still) this.settle(180); break;
       case 'home-off': f?.clearHome(); break;

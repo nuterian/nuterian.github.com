@@ -29,8 +29,9 @@ fallback. The main thread only sends small messages (pointer, where home is).
   no two birds ever trace the same loop), before drifting home. A disrupted flock takes
   real time to reassemble, staggered bird by bird, and a settled flock always has a few
   birds out on a lap — the idle state is never 100 % of the flock at once.
-- **The mark lives in whitespace, not at a fixed spot.** Its size never changes, but where
-  it sits does: a placement solver (`_placeHome`, run once a step — it's a coarse 7×6 grid
+- **The mark lives in whitespace, not at a fixed spot.** Where it sits, and — when the
+  viewport is too cramped to hold it — how big it is:
+  a placement solver (`_placeHome`, run once a step — it's a coarse 7×6 grid
   plus a few refinement rings against the content rectangles, microseconds) scores
   candidate positions by overlap with content and distance from the viewport's centre, with
   hysteresis so a near-tie never makes it hop. The box then *glides* to the winning spot
@@ -41,6 +42,22 @@ fallback. The main thread only sends small messages (pointer, where home is).
   when the mark scrolls off-screen, roam blindly, regroup" system outright — simpler, and
   it means there is always *something* to look at, at every scroll position, not just near
   the top.
+- **The mark condenses when the viewport has no rail for it.** The 60 rem column leaves no
+  room beside a 588 px mark below about 1500 px of viewport, and scrolled to the archive the
+  mark stood on the rows: measured, 13 % of it on row text at 1280×800, 3 % at 1440×900, 0 %
+  at 1680 and up. So the size is the solver's decision too. `_chooseFit` asks what the *best*
+  placement would still cost at each of `FIT_STEPS` (1, 0.8, 0.64) and steps down when more
+  than 4 % of the mark would be standing on content, back up only when the next size up would
+  be under 0.8 %. Two thresholds rather than one, and a dwell after either move: a mark that
+  shrank at exactly the coverage it re-grew at would breathe every time you crossed the line.
+  It is measured on the mark's own box, not the padded box the solver scores, because the box
+  the birds fill is the one that can be seen to overlap. After: 0 % on content at 1280, 1366,
+  1440, 1536 and 1680. The hero is untouched at every width — up there the mark has the whole
+  right of the page and the fit never leaves 1. **This is placement only.** Nothing in
+  `_chooseFit` touches how a bird flies, which is why `flight.mjs` and `crowd.mjs` don't move.
+  A lure pins the fit back to 1 while it is set, so the two compose by taking the smaller of
+  the pair rather than multiplying: lured while cramped is 0.42, not 0.42². `homeFit` rides
+  along in `window.flock.snapshot()`.
 - **The content is not a wall — it's a weak field.** Three earlier attempts (hard collision,
   a line-of-sight "pilot brain" routing around it, then a strong smooth field) all kept
   finding force equilibria — pinned single-file queues, jammed corners, even a standing
@@ -446,7 +463,9 @@ when the page scrolls; nothing new animates.
 
 It has to shrink as well as move. At full size the mark cannot fit beside a 60 rem column, so
 overlap rightly pins it a screen away and nothing reads as having happened. Condensed and
-tucked under the line you are pointing at, the gesture is legible. `LURE_SCALE` is 0.42.
+tucked under the line you are pointing at, the gesture is legible. `LURE_SCALE` is 0.42 —
+and since the solver now condenses on its own account too, a lure sets `homeFit` back to 1 for
+its duration so the two never multiply.
 
 Only `.row[data-slug]` is wired to the dialogs — the Making row is a link out, and the old
 `$$('.row')` would have caught it, cancelled its click and opened a sheet for `undefined`. The hero text
