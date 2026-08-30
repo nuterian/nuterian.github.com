@@ -154,7 +154,7 @@ img, svg { display: block; max-width: 100%; height: auto; }
  * stays exactly where it is: that border belongs to the parent, and a
  * transform on a child cannot reach it.
  */
-.sheet .close, .sheet-bar button, .site-footer .dot {
+.sheet .close, .sheet-bar button {
   width: 44px; height: 44px;
   display: grid; place-items: center;
   border-radius: 50%;
@@ -162,8 +162,7 @@ img, svg { display: block; max-width: 100%; height: auto; }
   transition: color var(--t-tint), background-color var(--t-tint);
 }
 .sheet .close:hover, .sheet .close:focus-visible,
-.sheet-bar button:hover, .sheet-bar button:focus-visible,
-.site-footer .dot:hover, .site-footer .dot:focus-visible {
+.sheet-bar button:hover, .sheet-bar button:focus-visible {
   color: var(--fg);
   background: var(--accent-soft);
 }
@@ -428,8 +427,33 @@ dialog#sheet .sheet .close { display: none; }
 .site-footer p { margin: 0; display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: center; }
 .site-footer .arrow { display: inline-block; opacity: 0; transition: opacity .8s var(--ease-out); }
 .site-footer .arrow.drawn, html:not(.js) .site-footer .arrow { opacity: 1; }
-.site-footer .dot { margin: -1rem -1rem; }         /* DISC, pulled back into the line */
-.site-footer .dot::after { content: '·'; font-size: 1.25rem; }
+/* The theme control. It used to be a single `·`, and a 44px hit box drawn
+ * around it with a -1rem margin: the target was technically there, but nothing
+ * about a dot says "theme", so people read the glyph as the button and aimed
+ * at 4px of it. It now shows its own surface — a hairline pill you can see the
+ * edges of — with an icon for recognition and the current mode in a word,
+ * because there are THREE states and an icon alone would be a guess. The word
+ * is the visible label and the aria-label contains it, so the accessible name
+ * and what you can read still agree. */
+.site-footer .theme {
+  display: inline-flex; align-items: center; gap: .5rem;
+  min-height: 44px; padding: 0 .9rem 0 .75rem;
+  font: inherit; color: var(--muted);
+  border: 1px solid var(--hair); border-radius: 999px;
+  transition: color var(--t-tint), background-color var(--t-tint), border-color var(--t-tint);
+}
+.site-footer .theme:hover, .site-footer .theme:focus-visible {
+  color: var(--fg); background: var(--accent-soft); border-color: transparent;
+}
+.theme-icon { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
+.i-auto path, .i-dark path { fill: currentColor; stroke: none; }   /* the lit half, and the moon */
+/* One state at a time; `:root` has no data-theme until you choose one. */
+.theme-icon > g { display: none; }
+:root:not([data-theme]) .i-auto,
+:root[data-theme='light'] .i-light,
+:root[data-theme='dark'] .i-dark { display: inline; }
+/* With no script it cannot switch anything, so it does not pretend to. */
+html:not(.js) .site-footer .theme { display: none; }
 
 /* Prev/next swaps one project's figures for another's inside the same open
  * dialog. Naming only that area means the crossfade is the figures changing,
@@ -448,4 +472,4 @@ dialog#sheet .sheet .close { display: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
 }
-@media print { #flock, .still, .site-footer .dot, body::before { display: none; } .sheet { display: block; } }
+@media print { #flock, .still, .site-footer .theme, body::before { display: none; } .sheet { display: block; } }

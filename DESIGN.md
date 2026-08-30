@@ -283,7 +283,7 @@ that moves the whole palette *and* the UA's own surfaces (scrollbars, caret, for
 which the old token-only override left stranded on the system's theme. `--shadow` isn't a
 colour, so `light-dark()` sits on each of its two shadow colours instead of around the list.
 
-Theme follows the system. `t` or the footer `·` cycles system → dark → light
+Theme follows the system. `t` or the footer's theme control cycles system → dark → light
 (persisted; applied before first paint by an inline script, so no flash). The canvas colour
 is computed in JS, not read from CSS (`js/hue.js` mirrors `--flock`), so `light-dark()` in
 the stylesheet never has to be parsed by script.
@@ -504,7 +504,7 @@ you were reading); a percentage is reachable whatever the window. It ends at `op
 **and `visibility: hidden`** — opacity alone leaves three invisible links in the tab order,
 and focus cannot be relied on to scroll them back into view, because on exactly those tall
 windows they are already on screen. Footer: the
-dateline “2013 → 2026” and the theme dot, nothing else. The arrow fades in the first
+dateline “2013 → 2026” and the theme control, nothing else. The arrow fades in the first
 time it scrolls into view. The 2013 site is still preserved at `/2013/` and its
 screenshots still come from there, but nothing links to it any more — the archive
 sheets are how you see it now.
@@ -517,9 +517,23 @@ are written once in `css/style.css` rather than per control:
   the arrow slides 4 px, the name goes accent. The *medium* and the arrow are anchored to
   the right-hand edge and stay; on phones, where the medium is stacked under the name, it
   travels with it.
-- **Disc** — a round 44 px control (the sheet's ×, its ← →, the footer's theme dot) lifts
-  from muted to fg on a soft accent disc. The dot used to be the odd one out: no radius, no
-  fill, hovering only to accent. It now wears the same disc as the other two.
+- **Disc** — a round 44 px control (the sheet's × and its ← →) lifts from muted to fg on a
+  soft accent disc.
+
+**The theme control is the one thing that left the disc**, and it left for a reason. It was a
+single `·` with a 44 px hit box drawn around it by a `-1rem` margin. The target passed an
+audit — 44 px, measurably — and failed in the hand: nothing about a dot says *theme*, so the
+glyph reads as the button and that is what people aim at, about 4 px of it, with the box
+silently overlapping the dateline beside it. A hit area you cannot see is not an affordance.
+So it now shows its own surface — a hairline pill, 83 × 44 — carrying a 15 px icon and the
+current mode in a word. **Both, not either.** There are *three* states, and no icon
+distinguishes "dark" from "auto, and it happens to be night" without the viewer guessing; the
+word settles it, and the icon is what makes the control recognisable at a glance before the
+word is read. The icon is one inline SVG with three `<g>`s and CSS shows exactly one, keyed
+off `:root[data-theme]` — the same attribute the inline pre-paint script sets, so the icon is
+never briefly wrong. The word is the visible label *and* a substring of the `aria-label`, so
+the accessible name and the readable one agree (WCAG 2.5.3). With no script it cannot switch
+anything, so it is not offered at all.
 
 Both animate **colour and transform only** — nothing interactive on this page touches a
 layout property, and both borrow the same two timing tokens (`--t-nudge` 0.45 s for travel,

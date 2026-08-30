@@ -72,10 +72,17 @@ setInterval(() => {
  * Theme: follows the system; `t` or the footer dot cycles system → dark → light.
  * ------------------------------------------------------------------------- */
 const themeBtn = $('#theme-toggle');
+// The word is the visible label AND part of the accessible name, so the two
+// never disagree (WCAG 2.5.3). The icon is decorative — it repeats the word.
+function labelTheme(mode) {
+  const word = mode === 'dark' ? 'Dark' : mode === 'light' ? 'Light' : 'Auto';
+  $('#theme-label').textContent = word;
+  themeBtn.setAttribute('aria-label', `Theme: ${word}. Switch theme.`);
+}
 function setTheme(mode) { // 'system' | 'dark' | 'light'
   if (mode === 'system') { delete root.dataset.theme; localStorage.removeItem('theme'); }
   else { root.dataset.theme = mode; localStorage.setItem('theme', mode); }
-  themeBtn.setAttribute('aria-label', `Theme: ${mode}. Switch theme.`);
+  labelTheme(mode);
   pushStyle();
 }
 function cycleTheme() {
@@ -83,7 +90,7 @@ function cycleTheme() {
   setTheme(cur === 'system' ? 'dark' : cur === 'dark' ? 'light' : 'system');
 }
 themeBtn.addEventListener('click', cycleTheme);
-themeBtn.setAttribute('aria-label', `Theme: ${root.dataset.theme || 'system'}. Switch theme.`);
+labelTheme(root.dataset.theme || 'system');
 darkMQ.addEventListener('change', pushStyle);
 
 /* ---------------------------------------------------------------------------
