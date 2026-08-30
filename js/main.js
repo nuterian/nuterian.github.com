@@ -341,12 +341,32 @@ function step(d) {
   const i = slugs.indexOf(current) + d;
   if (i < 0 || i >= slugs.length) return;
   history.replaceState({ slug: slugs[i] }, '', `#${slugs[i]}`);
-  openSheet(slugs[i], { push: false });
+  // Prev/next crossfades the figures (see style.css). Opening stays instant.
+  const go = () => openSheet(slugs[i], { push: false });
+  if (document.startViewTransition && !reduceMotion.matches) document.startViewTransition(go);
+  else go();
 }
 rows.forEach(r => r.addEventListener('click', e => {
   if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
   e.preventDefault(); opener = r; openSheet(r.dataset.slug);
 }));
+// Point at a row and its first screenshot starts loading, so the sheet opens
+// warm. Intent, not prediction: it costs nothing until you aim at something.
+// Once per target, and never when the connection has asked us to be frugal.
+const warmed = new Set();
+function warm(href) {
+  if (warmed.has(href) || navigator.connection?.saveData === true) return;
+  warmed.add(href);
+  const l = document.createElement('link');
+  l.rel = 'prefetch'; l.href = href;
+  document.head.append(l);
+}
+$$('.row').forEach(r => {
+  const slug = r.dataset.slug;
+  const on = () => warm(slug ? `img/archive/${slug}-1.avif` : r.getAttribute('href'));
+  r.addEventListener('mouseenter', on, { once: true });
+  r.addEventListener('focusin', on, { once: true });
+});
 // Swipe between projects on touch.
 let swipe = null;
 sheet.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') swipe = { x: e.clientX, y: e.clientY }; }, { passive: true });

@@ -511,6 +511,21 @@ Each project's full-length 960 px screenshot (AVIF → WebP → the original PNG
   reopen; ← → and swipe step between projects; focus returns to the opening row. The
   open animation is a plain CSS transform — no View Transitions, no backdrop blur: the
   perf benchmark showed both costing ~50 ms frames on open, for almost nothing visible.
+  **Opening is still exactly that.** Stepping between projects is the one case that earns a
+  View Transition, because there the dialog is already open and only its contents change:
+  `step()` wraps the swap in `document.startViewTransition`, `#sheet > .sheet` is the only
+  named element, and the root snapshot's own animation is switched off so the bar, the
+  backdrop and the flock behind them hold still. What is left is a ~200 ms crossfade of the
+  figures — the same surface changing what is on it. Behind `prefers-reduced-motion:
+  no-preference` in the CSS *and* a `reduceMotion.matches` guard in JS, so under reduced
+  motion no transition is started at all rather than started and then zeroed out; without
+  `startViewTransition` the swap is the plain one it always was.
+- **The sheets open warm.** The first hover or focus on a row appends a
+  `<link rel="prefetch">` for that project's first AVIF, once per target; the Making row
+  aims at `/forge/`. Prefetching on *intent* rather than on load is the whole point — it
+  costs nothing until you point at something, so the first-load budget is untouched and a
+  visitor who never opens a sheet never fetches an image. Skipped entirely when
+  `navigator.connection.saveData` is set.
 - A vertical ruler on wide screens reads “960 px — the width of the web in 2013”.
 - **In dark theme the screenshots are dimmed** (`filter: brightness(.88)`). They are 2013
   pages: full-bleed white. At full brightness on a 14 %-lightness sheet, opening one at

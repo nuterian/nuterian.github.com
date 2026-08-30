@@ -412,6 +412,19 @@ dialog#sheet .sheet .close { display: none; }
 .site-footer .dot { margin: -1rem -1rem; }         /* DISC, pulled back into the line */
 .site-footer .dot::after { content: '·'; font-size: 1.25rem; }
 
+/* Prev/next swaps one project's figures for another's inside the same open
+ * dialog. Naming only that area means the crossfade is the figures changing,
+ * not the page turning over: the bar, the backdrop and the flock behind it all
+ * hold still, which is why the root snapshot's own animation is switched off
+ * (the `isolation`/`display` pair is what makes turning it off actually paint).
+ * Opening a sheet starts no transition at all — only step() does. */
+@media (prefers-reduced-motion: no-preference) {
+  #sheet > .sheet { view-transition-name: sheet-figures; }
+  ::view-transition-image-pair(root) { isolation: auto; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; display: block; }
+  ::view-transition-old(sheet-figures), ::view-transition-new(sheet-figures) { animation-duration: .2s; }
+}
+
 /* --- Motion & print ------------------------------------------------------ */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
