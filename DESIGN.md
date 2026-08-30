@@ -58,6 +58,17 @@ fallback. The main thread only sends small messages (pointer, where home is).
   A lure pins the fit back to 1 while it is set, so the two compose by taking the smaller of
   the pair rather than multiplying: lured while cramped is 0.42, not 0.42². `homeFit` rides
   along in `window.flock.snapshot()`.
+  The ladder also has a floor to fall off: when even 0.64's *best* placement stands on more
+  than 18 % of content — a landscape phone, all words, no rail, no sky — the mark stands down
+  entirely (`homeOut`). The box parks, and every grounded bird rejoins the wheel within a
+  couple of seconds, because a roaming bird feels the content field and a loitering one does
+  not (HOME never does). It returns only once the smallest mark would be under 6 % — clearly
+  clear, the same asymmetry as shrink/grow, so a threshold edge never flickers it in and out.
+  Before this exit existed a settled landscape phone wore the mark ON the h1: overlap is
+  near-constant when content covers everything, so the centre preference picked the title.
+  The placement is also memoised on its inputs (scroll, viewport, fit, lure, the obstacle
+  set): idle, the grid search does not run at all; scrolling, it runs once per scrolled
+  frame, which is exactly when its answer changes.
 - **The content is not a wall — it's a weak field.** Three earlier attempts (hard collision,
   a line-of-sight "pilot brain" routing around it, then a strong smooth field) all kept
   finding force equilibria — pinned single-file queues, jammed corners, even a standing

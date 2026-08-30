@@ -66,6 +66,8 @@ const TAU = Math.PI * 2, PI = Math.PI, DEG = Math.PI / 180;
 const FIT_STEPS = [1, 0.8, 0.64];      // a step or two, never continuous
 const FIT_SHRINK = 0.04, FIT_GROW = 0.008;  // shrink over, grow under — two, so it can't breathe
 const FIT_EVERY = 0.3, FIT_DWELL = 1.1;     // s: re-decide rate, and dwell after a step
+const FIT_GIVEUP = 0.18, FIT_RETURN = 0.06; // even the smallest step stands on words: no mark
+                                            // at all, back only once it would be clearly clear
 
 // Tunables. These are the "feel" — change with care and with a screenshot.
 export const DEFAULTS = {
@@ -209,7 +211,9 @@ export class Flock {
     this._homeGoal = null;  // where the placement solver currently wants it
     this.homeLure = null;   // {x,y} view space — a spot to prefer over the centre
     this.homeFit = 1;       // placement-driven condense factor — see _chooseFit
+    this.homeOut = false;   // no placement exists at any size — the mark stands down
     this._fitAt = 0;        // time of the next fit decision
+    this._solved = null;    // the inputs the current _homeGoal was solved from
     this._dv = { x: 0, y: 0 }; // desired-velocity scratch, reused per bird
     this.tempo = 1;         // global speed multiplier (dims when a sheet is open)
     this.setCount(opts.count || 120);
@@ -298,7 +302,7 @@ export class Flock {
     this._fitAt = 0;        // the requested size changed: re-decide the fit now
     this._assign(false);
   }
-  clearHome() { this.home = null; this.homeBox = null; this._homeGoal = null; this.tgt = null; this.homeLure = null; this.homeFit = 1; }
+  clearHome() { this.home = null; this.homeBox = null; this._homeGoal = null; this.tgt = null; this.homeLure = null; this.homeFit = 1; this.homeOut = false; this._solved = null; }
 
   // Find the best place for a mark box of size S in the current viewport:
   // least overlap with content (view space), fully on-canvas, gently
@@ -376,17 +380,35 @@ export class Flock {
   _chooseFit(req) {
     // A lure is already a deliberate condense: compose by the smaller of the
     // two, never by multiplying (0.42 lured, not 0.42²).
-    if (this.homeLure) { this.homeFit = 1; return 1; }
-    if (this.time < this._fitAt) return this.homeFit;
+    if (this.homeLure) { this.homeFit = 1; this.homeOut = false; return 1; }
+    if (this.time < this._fitAt) return this.homeOut ? 0 : this.homeFit;
     this._fitAt = this.time + FIT_EVERY;
-    const i = Math.max(0, FIT_STEPS.indexOf(this.homeFit));
+    const last = FIT_STEPS.length - 1;
     const coverAt = (k) => {
       const f = FIT_STEPS[k], S = { w: req.w * f, h: req.h * f };
       const { cx, cy } = this._solveHome(S, true);
       return this._homeCover(cx, cy, S);
     };
+    // Stood down (below): return only once the smallest mark would be clearly
+    // clear — a second threshold, for the same reason FIT_GROW isn't FIT_SHRINK.
+    if (this.homeOut) {
+      if (coverAt(last) > FIT_RETURN) return 0;
+      this.homeOut = false; this.homeFit = FIT_STEPS[last];
+      this._fitAt = this.time + FIT_DWELL; this._assign(false);
+      return this.homeFit;
+    }
+    const i = Math.max(0, FIT_STEPS.indexOf(this.homeFit));
+    const cover = coverAt(i);
     let next = i;
-    if (coverAt(i) > FIT_SHRINK) { if (i < FIT_STEPS.length - 1) next = i + 1; }
+    if (cover > FIT_SHRINK) {
+      if (i < last) next = i + 1;
+      // No size fits — a viewport that is all words (a landscape phone). The
+      // mark lives in whitespace or not at all, so it stands down rather than
+      // being forced onto the text: _placeHome parks the box, and _step sends
+      // every grounded bird back on a lap, where the content field can steer
+      // it — a markless flock that LOITERED would feel no field at all.
+      else if (cover > FIT_GIVEUP) { this.homeOut = true; this._fitAt = this.time + FIT_DWELL; return 0; }
+    }
     else if (i > 0 && coverAt(i - 1) <= FIT_GROW) next = i - 1;
     if (next !== i) { this.homeFit = FIT_STEPS[next]; this._fitAt = this.time + FIT_DWELL; this._assign(false); }
     return this.homeFit;
@@ -395,6 +417,17 @@ export class Flock {
   _placeHome() {
     const req = this.home?.size; if (!req) return;
     const f = this._chooseFit(req);
+    if (!f) { this.homeBox = null; this._homeGoal = null; this._solved = null; return; } // stood down
+    // The goal is a pure function of these inputs, so a step where none moved
+    // is a step where the answer is already known — the grid search runs only
+    // when something did (idle: never; scrolling: once per scrolled frame).
+    const s = this._solved;
+    if (s && s.f === f && s.scroll === this.scroll && s.w === this.w && s.h === this.h
+          && s.obs === this.obstacles && s.lure === this.homeLure && s.req === req && this._homeGoal) {
+      if (!this.homeBox) this.homeBox = { ...this._homeGoal };
+      return;
+    }
+    this._solved = { f, scroll: this.scroll, w: this.w, h: this.h, obs: this.obstacles, lure: this.homeLure, req };
     const S = f === 1 ? req : { w: req.w * f, h: req.h * f };
     const { cx, cy } = this._solveHome(S);
     this._homeGoal = { x: cx - S.w / 2, y: cy - S.h / 2, w: S.w, h: S.h };
@@ -449,7 +482,7 @@ export class Flock {
     out.x = fx; out.y = fy;
   }
 
-  // Send bird i off on a lap.  // Send bird i off on a lap. Every departure redraws its own ring — scale,
+  // Send bird i off on a lap. Every departure redraws its own ring — scale,
   // centre, direction — so no two birds trace the same path and the flock
   // never resolves into a visible circle.
   _roam(i, laps, keepTurn = false) {
@@ -527,7 +560,6 @@ export class Flock {
 
     const per2 = p.perception * p.perception;
     const scroll = this.scroll;
-    const homing = mode === 'home' && !!this.tgt;
 
     // The mark lives in whitespace: find where it belongs right now (cheap —
     // see _placeHome) and glide the box toward it. No evacuation logic is
@@ -537,16 +569,21 @@ export class Flock {
     if (this.home) {
       this._placeHome();
       const g = this._homeGoal, b = this.homeBox;
-      const gdx = g.x - b.x, gdy = g.y - b.y, gd = Math.sqrt(gdx * gdx + gdy * gdy);
-      if (gd > 0.3) {
-        const gs = Math.min(gd * 2.4, 260); // eases in, capped — a deliberate glide, not a snap
-        b.x += gdx / gd * gs * dt; b.y += gdy / gd * gs * dt;
+      if (g && b) {
+        const gdx = g.x - b.x, gdy = g.y - b.y, gd = Math.sqrt(gdx * gdx + gdy * gdy);
+        if (gd > 0.3) {
+          const gs = Math.min(gd * 2.4, 260); // eases in, capped — a deliberate glide, not a snap
+          b.x += gdx / gd * gs * dt; b.y += gdy / gd * gs * dt;
+        }
       }
     }
     // The whole mark sways very slowly, so even at rest it is never a still image.
     const swayX = Math.sin(t * 0.31) * 5, swayY = Math.cos(t * 0.23) * 4;
     // The campus loop: a wide ellipse around wherever the mark currently is.
     const hb = this.homeBox;
+    // No box, no homing: stood down (see _chooseFit) the spring has nowhere
+    // to point, and a settled bird is sent back on a lap below.
+    const homing = mode === 'home' && !!this.tgt && !!hb;
     const ccx = hb ? hb.x + hb.w / 2 : this.w / 2, ccy = hb ? hb.y + hb.h / 2 : this.h * 0.45;
     const markR = hb ? Math.max(hb.w, hb.h) * 0.55 : 180;
     const ringX = Math.max(this.w * 0.36, markR + 90);
@@ -624,6 +661,13 @@ export class Flock {
             this._roam(i, 0.4 + this.random() * 1.1);
             this.lastA[i] = Math.atan2((yi - ccy) / ringY, (xi - ccx) / ringX);
           }
+        } else if (this.homeOut && this.random() < 0.5 * dt) {
+          // Stood down, a grounded bird rejoins the wheel within a couple of
+          // seconds: kept moving, it feels the content field and reads as a
+          // flock with nowhere to land — grounded, it would loiter on the
+          // words the mark just refused to stand on.
+          this._roam(i, 1 + this.random());
+          this.lastA[i] = Math.atan2((yi - ccy) / ringY, (xi - ccx) / ringX);
         }
       } else if (si === 1) {
         // STARTLE — fly your own way out, hard but never faster than you can.
