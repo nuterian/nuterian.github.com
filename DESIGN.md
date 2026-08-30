@@ -651,12 +651,20 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   reduced motion is actually still; no-JS still and `:target` work; the behaviours that
   shipped as screenshots, pinned (landscape stand-down, the thinned phone grid, the theme
   switch under blocked storage — all on `?still&mainthread`, stepping the sim by hand so
-  each is deterministic and takes milliseconds);
+  each is deterministic and takes milliseconds); and offline: kill the network, reload,
+  and the page, the flock and a sheet with its screenshot must all still be there.
 - **Gates, other engines** (`tools/engines.mjs`): the same site in WebKit and Firefox —
   the engines where the risky dependencies actually differ (OffscreenCanvas in a module
   worker, `light-dark()`, `@property`, `:target` with scripting off). It asserts outcomes,
   not paths — each engine takes whichever flock path it supports — and prints the path, so
   a silent fallback is at least a visible one. As of writing, both take worker + webgl2.
+- **The service worker** (`sw.js`): navigations are network-first, so a deploy lands on
+  the very next visit and only a dead network falls back to cache; everything else is
+  stale-while-revalidate, so repeat visits paint from disk and an asset is at most one
+  visit behind. The shell is precached at install (offline works for a visitor who never
+  scrolled); archive screenshots are cached as they are seen; the cache version exists to
+  *drop* things, not to update them — updates flow through on their own. Offline, the
+  console says so: `flock offline — everything you see was already here.`
 - **One copy of the plumbing** (`js/theme.js`): which theme is in force, how a mode is
   applied and remembered, how the hour's light lands on the page and the flock. main.js
   and 404.js each carried a private copy and the copies drifted — a missing modifier
@@ -675,6 +683,7 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
 
 ```
 index.html  404.html  humans.txt  robots.txt  .nojekyll
+sw.js             offline and repeat visits (see Engineering constraints)
 css/style.css
 js/main.js        the page
 js/flock.js       the simulation + renderer + frame loop (pure)

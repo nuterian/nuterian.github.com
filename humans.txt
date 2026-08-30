@@ -14,3 +14,4 @@
   Components: one canvas, one worker, one dialog, no build step, no analytics.
   Last major redesign: 2026. Previous: 2013 — preserved at /2013/.
   Rules of the flock: separation, alignment, cohesion, you.
+  Offline: yes. The flock does not need the internet.

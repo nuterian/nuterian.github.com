@@ -55,4 +55,6 @@ addEventListener('keydown', e => {
   post(style());
 });
 document.addEventListener('visibilitychange', () => post({ type: 'visible', value: !document.hidden }));
+// Even a wrong address installs the right site (see sw.js).
+if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 console.log('%cflock%c looked for this page too. It isn\'t here.', 'font-weight:600', '');

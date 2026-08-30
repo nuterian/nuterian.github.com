@@ -27,7 +27,7 @@ const browser = await chromium.launch({ args: ['--remote-debugging-port=9222'] }
 console.log('\naxe');
 for (const scheme of ['light', 'dark']) {
   for (const [label, opts] of [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', devices['iPhone 13']]]) {
-    const ctx = await browser.newContext({ ...opts, colorScheme: scheme });
+    const ctx = await browser.newContext({ ...opts, colorScheme: scheme, serviceWorkers: 'block' });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
@@ -54,7 +54,7 @@ for (const scheme of ['light', 'dark']) {
 // --- reduced motion → still ------------------------------------------------
 console.log('\nmotion');
 {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' });
   const page = await ctx.newPage();
   await page.goto(BASE + '/?seed=1'); await page.waitForTimeout(1200);
   const a = await page.screenshot({ fullPage: false }); await page.waitForTimeout(800);
@@ -89,7 +89,7 @@ console.log('\nbehaviours');
   };
   // A landscape phone is all words: the mark stands down (homeOut), and comes
   // back when the viewport turns portrait again.
-  const ctx = await browser.newContext({ viewport: { width: 667, height: 375 } });
+  const ctx = await browser.newContext({ viewport: { width: 667, height: 375 }, serviceWorkers: 'block' });
   const page = await ctx.newPage();
   await still(page, '/?seed=7&still&mainthread');
   const out = await page.evaluate(() => ({ box: window.flock._runner.flock.homeBox, out: window.flock._runner.flock.homeOut }));
@@ -103,7 +103,7 @@ console.log('\nbehaviours');
   const pts = await page.evaluate(() => window.flock._runner.flock.home.points.length / 2);
   pts === 102 ? ok(`phone mark: thinned grid (${pts} points)`) : fail(`phone mark: expected 102 points, got ${pts}`);
   await ctx.close();
-  const dctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const dctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
   const dpage = await dctx.newPage();
   await still(dpage, '/?seed=7&still&mainthread', 60);
   const dpts = await dpage.evaluate(() => window.flock._runner.flock.home.points.length / 2);
@@ -111,7 +111,7 @@ console.log('\nbehaviours');
   await dctx.close();
   // Blocked storage must not break the theme switch (Chrome with site data off
   // throws on the localStorage accessor itself).
-  const sctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const sctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
   const spage = await sctx.newPage();
   const serrs = [];
   spage.on('pageerror', e => serrs.push(e.message));
@@ -125,10 +125,39 @@ console.log('\nbehaviours');
   await sctx.close();
 }
 
+// --- offline: the service worker carries the whole site --------------------
+console.log('\noffline');
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  // First visit online: the SW installs, the shell precaches, and opening a
+  // sheet runs one screenshot through the runtime cache.
+  await page.goto(BASE + '/#unlistr', { waitUntil: 'load' });
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.waitForFunction(() => caches.match('/js/flock.js').then(r => !!r), null, { timeout: 8000 });
+  await page.waitForFunction(() => { const i = document.querySelector('#sheet img'); return i && i.complete && i.naturalWidth > 0; });
+  // Now the network dies. The reload must still be the entire site.
+  await ctx.setOffline(true);
+  await page.reload({ waitUntil: 'load' });
+  const h1 = await page.evaluate(() => document.querySelector('h1')?.textContent);
+  h1 === 'Jugal Manjeshwar' ? ok('offline: the page is served from cache') : fail(`offline: page broken (h1: ${h1})`);
+  try {
+    await page.waitForFunction(() => window.flock && window.flock.fps > 0, null, { timeout: 8000 });
+    ok('offline: the flock flies (worker + assets from cache)');
+  } catch { fail('offline: the flock never drew a frame'); }
+  const sheet = await page.evaluate(() => {
+    const img = document.querySelector('#sheet img');
+    return { open: document.getElementById('sheet').open, img: !!(img && img.complete && img.naturalWidth > 0) };
+  });
+  (sheet.open && sheet.img) ? ok('offline: the sheet opens with its screenshot') : fail(`offline: sheet ${JSON.stringify(sheet)}`);
+  await ctx.setOffline(false);
+  await ctx.close();
+}
+
 // --- budget ---------------------------------------------------------------
 console.log('\nbudget');
 {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
   const page = await ctx.newPage();
   const sizes = [];
   page.on('response', async r => {

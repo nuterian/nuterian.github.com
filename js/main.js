@@ -439,6 +439,16 @@ if (arrow && 'IntersectionObserver' in window) {
   io.observe(arrow);
 } else arrow?.classList.add('drawn');
 
+// The service worker: repeat visits paint from disk, and the whole site —
+// flock included — works with no network at all (see sw.js). Registered
+// after load so it never competes with the first paint. A page that is
+// actually offline says so where the curious will look.
+if ('serviceWorker' in navigator) {
+  addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  if (navigator.serviceWorker.controller && !navigator.onLine)
+    console.log('%cflock%c offline — everything you see was already here.', 'font-weight:600', '');
+}
+
 // Console: one line, and a handle to poke at.
 console.log(
   `%cflock%c ${TARGET} · rules: separation, alignment, cohesion, you · ${inWorker ? 'worker + OffscreenCanvas' : 'main thread'}${STILL ? ' · still' : ''} (renderer: flock.where)\n%cwindow.flock — { count, fps, params, home, season(), hue, seed } · ?n= ?seed= ?still ?hue= ?hour= ?season=snow · press t`,
