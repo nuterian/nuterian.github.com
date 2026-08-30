@@ -1,4 +1,4 @@
-# nuterian.github.io — design notes
+# jugalm.com — design notes
 
 The spec the code is checked against. If the site and this file disagree, one of them is wrong.
 

@@ -45,7 +45,11 @@ addEventListener('fetch', (e) => {
       const c = await caches.open(V);
       try {
         const res = await fetch(req);
-        if (res.ok) c.put(req, res.clone());
+        // A redirected response is deliberately not cached. A navigation request
+        // carries redirect mode "manual", and replaying a stored redirected
+        // response against one is a spec error — which is exactly what the old
+        // origin does now that nuterian.github.io 301s to jugalm.com.
+        if (res.ok && !res.redirected) c.put(req, res.clone());
         return res;
       } catch {
         // Offline: the cached page if we have this one, the home page for

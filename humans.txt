@@ -1,6 +1,6 @@
 /* TEAM */
   Handcrafted by: Jugal Manjeshwar
-  Site: https://nuterian.github.io
+  Site: https://jugalm.com
   GitHub: https://github.com/nuterian
   Location: Earth
 
