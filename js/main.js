@@ -219,8 +219,9 @@ addEventListener('scroll', () => {
   if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; post({ type: 'scroll', y: scrollOffset() }); });
 }, { passive: true });
 post({ type: 'scroll', y: scrollOffset() });
-// Crossing the breakpoint swaps which of the two the canvas is doing.
-heroBound.addEventListener('change', () => post({ type: 'scroll', y: scrollOffset() }));
+// Crossing the breakpoint swaps which of the two the canvas is doing —
+// and which point grid the mark wears (sendHome, §3).
+heroBound.addEventListener('change', () => { post({ type: 'scroll', y: scrollOffset() }); sendHome(); });
 
 /* ---------------------------------------------------------------------------
  * 3. What you do
@@ -307,7 +308,21 @@ function homeSize() {
   const bw = Math.min(w * (vw() < 700 ? 0.66 : 0.42), 620);
   return { w: bw, h: bw / MARK_ASPECT };
 }
-function sendHome() { post({ type: 'home', points: MARK, aspect: MARK_ASPECT, size: homeSize() }); }
+// Even at 66% the phone mark is a ~10 px point pitch against a 10.4 px
+// wingspan, and adjacent birds weld into one blob — at any share or wingspan
+// (both were tried; the ratio is what fails). So a phone keeps the size and
+// halves the GRID instead: a checkerboard of the sampled points recovers the
+// 7 px lattice from mark.js's percentages, pitch grows 1.4×, and 120 birds
+// now fill every point that remains instead of two-thirds of 208.
+const MARK_THIN = (() => {
+  const out = [];
+  for (let i = 0; i < MARK.length; i += 2) {
+    const c = Math.round((MARK[i] - 1.6) / 3.211), r = Math.round((MARK[i + 1] - 2.5) / 5);
+    if (((c + r) & 1) === 0) out.push(MARK[i], MARK[i + 1]);
+  }
+  return new Uint8Array(out);
+})();
+function sendHome() { post({ type: 'home', points: heroBound.matches ? MARK_THIN : MARK, aspect: MARK_ASPECT, size: homeSize() }); }
 sendHome();
 sendObstacles();
 

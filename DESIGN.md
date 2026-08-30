@@ -141,6 +141,12 @@ fallback. The main thread only sends small messages (pointer, where home is).
   the *jm* collapses into a blob however many birds you add. Phones therefore give the mark
   a much larger share (66 %) of a much smaller canvas, sized to still clear the viewport on
   a 320 px screen. Raising the phone count alone only turns a sparse blob into a dense one.
+  And share alone cannot win either: 66 % of a phone canvas is a ~10 px point pitch against
+  a 10.4 px wingspan, and adjacent birds weld — measured at every share up to 90 % and
+  wingspans down to 3.8 px, it is the pitch-to-span ratio that fails, not the size. So a
+  phone keeps the size and halves the *grid*: `MARK_THIN` (main.js) takes a checkerboard of
+  the sampled points, the pitch grows 1.4×, and 120 birds fill every point that remains
+  instead of two-thirds of 208 — the strokes separate again.
 - **Bird count is free; canvas area is not.** Measured on a throttled phone (iPhone 13
   emulation at 4× and 6× CPU): 60, 90, 120, 140 and 200 birds all hold 60 draws/s with zero
   frames over 20 ms. The phone count sat at 60 for no benefit that could be measured — the
