@@ -727,6 +727,6 @@ fonts/            subset Geist (glyphs and wght 400–500)
 img/archive/      AVIF/WebP screenshots
 img/mark.svg      favicon, theme-aware
 img/og.png        generated from the site itself (?still&seed=2013&hour=9)
-2013/             the previous site, untouched
+2013/             the previous site — the page untouched, three lines of head metadata added
 tools/            dev only: fonts, images, still, og, serve, check
 ```
