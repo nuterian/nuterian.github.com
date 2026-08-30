@@ -315,7 +315,14 @@ h1 {
 .archive header { display: flex; align-items: baseline; gap: 1.25rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
 h2 { font-size: 1rem; font-weight: 500; margin: 0; letter-spacing: -0.01em; }
 .meta { margin: 0; color: var(--muted); }
-.rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--hair); }
+/* The row numbers are COUNTED, not typed. They were six hardcoded spans, and a
+ * reorder desynced them from the rows they label — which has happened. Each
+ * <ol class="rows"> resets its own counter, so Making and Archive both start
+ * at 01. The span stays: it holds the grid's first column and the aria-hidden
+ * (the number is decoration — the name is the accessible label). */
+.rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--hair); counter-reset: rows; }
+.rows li { counter-increment: rows; }
+.row .num::before { content: counter(rows, decimal-leading-zero); }
 .rows li { border-bottom: 1px solid var(--hair); }
 /* Each row lifts the last few pixels into place as it arrives, on its OWN
  * timeline (`view()`) — no delay chain to fall out of step with the scroll.

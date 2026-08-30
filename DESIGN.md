@@ -433,7 +433,13 @@ flock owns the rest; the hero text recedes on scroll (scroll-driven animation). 
 top and bottom of the travel — the one piece of motion on the page that is *pointing* at
 something. It rides `translate` while the hover nudge stays on `transform`, because the two
 compose and a running animation would otherwise outrank the hover outright. Archive
-below: numbered rows (name · medium in mono), 56 px tall, hairline rules.
+below: numbered rows (name · medium in mono), 56 px tall, hairline rules. **The numbers are
+counted, not typed** — `counter-reset` on each `<ol class="rows">`, `counter-increment` on the
+`li`, `decimal-leading-zero` in a `::before`. They were six hardcoded spans until a reorder
+desynced them from the rows they label, which is a bug the markup should not be able to have.
+Both lists reset their own counter, so Making and Archive each start at 01. The empty span
+stays: it holds the grid's first column, and it is `aria-hidden` because the number is
+decoration — the name is the row's accessible label.
 
 **The rows lift into place as they arrive** — `.rows .row`, on each row's own `view()`
 timeline over the first 20 % of its cover range, an 8 px `translate` and nothing else.
