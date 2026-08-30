@@ -13,7 +13,8 @@
  */
 
 import { Runner, MARK, MARK_ASPECT, DEFAULTS } from './flock.js';
-import { hueAt, lightAt, flockColor } from './hue.js';
+import { hueAt } from './hue.js';
+import { setTheme as applyTheme, nextTheme, lightStyle } from './theme.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -21,10 +22,7 @@ const root = document.documentElement;
 const params = new URLSearchParams(location.search);
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const STILL = params.has('still') || reduceMotion.matches;
-// Which theme is in force. Up here because §1's light needs it too — the same
-// sun tints one way on paper and another on a night sky.
 const darkMQ = matchMedia('(prefers-color-scheme: dark)');
-const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : darkMQ.matches;
 
 let post;          // send a message to wherever the flock lives (set in §2)
 let inWorker = false;
@@ -51,15 +49,7 @@ function clock() {
   return d;
 }
 let hue = params.has('hue') ? +params.get('hue') : hueAt(clock());
-let light = lightAt(clock(), isDark(), hue);
-// The page reads the light as custom properties (the wash in style.css), the
-// flock off the style message. Same numbers, one source.
-function applyLight() {
-  light = lightAt(clock(), isDark(), hue);
-  root.style.setProperty('--light-x', (50 + Math.cos(light.az) * 62).toFixed(1) + '%');
-  root.style.setProperty('--light-y', (50 + Math.sin(light.az) * 44).toFixed(1) + '%');
-  root.style.setProperty('--glow', light.glow.toFixed(3));
-}
+let light; // the hour's light, kept for window.flock.light (set by pushStyle)
 function applyHue() { root.style.setProperty('--hue', hue.toFixed(1)); pushStyle(); }
 applyHue();
 setInterval(() => {
@@ -79,19 +69,12 @@ function labelTheme(mode) {
   $('#theme-label').textContent = word;
   themeBtn.setAttribute('aria-label', `Theme: ${word}. Switch theme.`);
 }
-function setTheme(mode) { // 'system' | 'dark' | 'light'
-  if (mode === 'system') delete root.dataset.theme; else root.dataset.theme = mode;
-  // Remembering is best-effort: storage can be blocked outright (the inline
-  // restore in index.html guards its read for the same reason), and the
-  // switch itself must not die on the memo.
-  try { mode === 'system' ? localStorage.removeItem('theme') : localStorage.setItem('theme', mode); } catch {}
+function setTheme(mode) { // 'system' | 'dark' | 'light' — theme.js applies, this page labels
+  applyTheme(mode);
   labelTheme(mode);
   pushStyle();
 }
-function cycleTheme() {
-  const cur = root.dataset.theme || 'system';
-  setTheme(cur === 'system' ? 'dark' : cur === 'dark' ? 'light' : 'system');
-}
+function cycleTheme() { setTheme(nextTheme()); }
 themeBtn.addEventListener('click', cycleTheme);
 labelTheme(root.dataset.theme || 'system');
 darkMQ.addEventListener('change', pushStyle);
@@ -143,13 +126,13 @@ const month = new Date().getMonth();
 const season = params.get('season') || (month === 11 ? 'snow' : null);
 
 
-function flockStyle() {
-  return { color: flockColor(isDark(), hue), lit: light.tint, glint: light.glint,
-    light: [Math.cos(light.az), Math.sin(light.az)] };
+// lightStyle() runs unconditionally: the page's light must not wait for a
+// flock that may not exist yet — only the posting is optional.
+function pushStyle(extra) {
+  const r = lightStyle(clock(), hue);
+  light = r.light;
+  post?.({ type: 'style', style: { ...r.style, ...extra } });
 }
-// applyLight() is a statement, not an argument: `post?.(…)` never evaluates its
-// argument before the flock exists, and the page's light must not wait for it.
-function pushStyle(extra) { applyLight(); post?.({ type: 'style', style: { ...flockStyle(), ...extra } }); }
 
 function initMessage() {
   const { w, h } = measureWorld();

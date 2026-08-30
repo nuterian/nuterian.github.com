@@ -1162,11 +1162,13 @@ export class Runner {
     this.last = now;
     // The simulation ticks at 60 Hz; a 120 Hz display would otherwise redraw
     // identical frames between steps. Only draw when something moved.
-    if (this.flock.advance(dt) || this.dirty) { this.draw(); this.dirty = false; }
-    // Report frame rate once a second; the flock's size is never changed
-    // behind your back (a frame costs ~0.04 ms — there is nothing to adapt).
-    this.accum += dt; this.frames++;
-    if (this.frames === 60) {
+    if (this.flock.advance(dt) || this.dirty) { this.draw(); this.dirty = false; this.frames++; }
+    // Report DRAWS per second, once a second — the flock's own achieved rate.
+    // Counting rAF ticks instead read ~120 on a 120 Hz display whose sim and
+    // draws were pinned at 60. The flock's size is never changed behind your
+    // back either way (a frame costs ~0.04 ms — there is nothing to adapt).
+    this.accum += dt;
+    if (this.accum >= 1) {
       this.onstats?.({ fps: this.frames / this.accum, n: this.flock.n, renderer: this.painter.name });
       this.frames = 0; this.accum = 0;
     }

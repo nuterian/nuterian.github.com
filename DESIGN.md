@@ -647,8 +647,21 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
 - Everything is behind feature detection: no Worker/OffscreenCanvas → main thread;
   no View Transitions → plain; no `<dialog>` → `:target`; no script → still.
 - **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; Lighthouse 100/100/100/100 on
-  desktop and mobile; first load < 100 KB gzip (currently 86.9 KB); no console errors;
-  reduced motion is actually still; no-JS still and `:target` work.
+  desktop and mobile; first load < 100 KB gzip (currently 94.9 KB); no console errors;
+  reduced motion is actually still; no-JS still and `:target` work; the behaviours that
+  shipped as screenshots, pinned (landscape stand-down, the thinned phone grid, the theme
+  switch under blocked storage — all on `?still&mainthread`, stepping the sim by hand so
+  each is deterministic and takes milliseconds);
+- **Gates, other engines** (`tools/engines.mjs`): the same site in WebKit and Firefox —
+  the engines where the risky dependencies actually differ (OffscreenCanvas in a module
+  worker, `light-dark()`, `@property`, `:target` with scripting off). It asserts outcomes,
+  not paths — each engine takes whichever flock path it supports — and prints the path, so
+  a silent fallback is at least a visible one. As of writing, both take worker + webgl2.
+- **One copy of the plumbing** (`js/theme.js`): which theme is in force, how a mode is
+  applied and remembered, how the hour's light lands on the page and the flock. main.js
+  and 404.js each carried a private copy and the copies drifted — a missing modifier
+  guard on one page, unconverted tap coordinates on the other. Both bugs died with the
+  duplication.
 - **More instruments, not part of the gate**: `tools/fps.mjs` — the flock's achieved frame
   rate across worker/main-thread and canvas configurations (the metric that matters — see
   *What actually costs*); `tools/bench.html` — per-operation microbench with GPU sync;
@@ -666,6 +679,7 @@ css/style.css
 js/main.js        the page
 js/flock.js       the simulation + renderer + frame loop (pure)
 js/flock.worker.js
+js/theme.js       theme + the hour's light, shared by both pages
 js/hue.js         hue AND light of the day, OKLCH → sRGB
 js/mark.js        the 2013 mark as points
 js/404.js

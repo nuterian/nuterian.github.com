@@ -3,22 +3,15 @@
  * Small enough to run on the main thread; nothing here scrolls.
  */
 import { Runner, textPoints } from './flock.js';
-import { hueAt, lightAt, flockColor } from './hue.js';
+import { hueAt } from './hue.js';
+import { setTheme, nextTheme, lightStyle } from './theme.js';
 
 const root = document.documentElement;
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const dark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 const hue = hueAt();
 root.style.setProperty('--hue', hue.toFixed(1));
-// The same clock, the same light as the home page (see hue.js) — the page gets
-// it as custom properties, the flock gets it on the style message.
-function style() {
-  const l = lightAt(new Date(), dark(), hue);
-  root.style.setProperty('--light-x', (50 + Math.cos(l.az) * 62).toFixed(1) + '%');
-  root.style.setProperty('--light-y', (50 + Math.sin(l.az) * 44).toFixed(1) + '%');
-  root.style.setProperty('--glow', l.glow.toFixed(3));
-  return { type: 'style', style: { color: flockColor(dark(), hue), lit: l.tint, glint: l.glint, light: [Math.cos(l.az), Math.sin(l.az)] } };
-}
+// The same clock, the same light as the home page — one copy, in theme.js.
+const style = () => ({ type: 'style', style: lightStyle(new Date(), hue).style });
 
 const canvas = document.getElementById('flock');
 const runner = new Runner(canvas);
@@ -51,14 +44,14 @@ addEventListener('pointermove', e => {
   post({ type: 'pointer', x: e.clientX - r.left, y: e.clientY - r.top, on: true });
 }, { passive: true });
 document.addEventListener('mouseleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
-addEventListener('pointerup', e => { if (e.pointerType === 'touch') post({ type: 'attract', x: e.clientX, y: e.clientY, r: 110, k: 1.6, life: 1.3 }); }, { passive: true });
+addEventListener('pointerup', e => {
+  if (e.pointerType !== 'touch') return;
+  const r = canvas.getBoundingClientRect(); // canvas-local, like every other input
+  post({ type: 'attract', x: e.clientX - r.left, y: e.clientY - r.top, r: 110, k: 1.6, life: 1.3 });
+}, { passive: true });
 addEventListener('keydown', e => {
-  if (e.key !== 't') return;
-  const cur = root.dataset.theme || 'system';
-  const next = cur === 'system' ? 'dark' : cur === 'dark' ? 'light' : 'system';
-  if (next === 'system') delete root.dataset.theme; else root.dataset.theme = next;
-  // Storage can be blocked; the switch must not die on remembering (as main.js).
-  try { next === 'system' ? localStorage.removeItem('theme') : localStorage.setItem('theme', next); } catch {}
+  if ((e.key !== 't' && e.key !== 'T') || e.metaKey || e.ctrlKey || e.altKey) return;
+  setTheme(nextTheme());
   post(style());
 });
 document.addEventListener('visibilitychange', () => post({ type: 'visible', value: !document.hidden }));
