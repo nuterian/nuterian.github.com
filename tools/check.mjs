@@ -77,6 +77,54 @@ console.log('\nno script');
   await ctx.close();
 }
 
+// --- behaviours that shipped as screenshots — pinned here so tuning can't
+// silently undo them. All on ?still&mainthread: the sim is stepped by hand,
+// so each check is deterministic and takes milliseconds, not settle-time.
+console.log('\nbehaviours');
+{
+  const still = async (page, url, steps = 300) => {
+    await page.goto(BASE + url); await page.waitForFunction(() => window.flock?._runner);
+    await page.evaluate((n) => { const r = window.flock._runner; for (let i = 0; i < n; i++) r.flock.advance(1 / 60); }, steps);
+    return page;
+  };
+  // A landscape phone is all words: the mark stands down (homeOut), and comes
+  // back when the viewport turns portrait again.
+  const ctx = await browser.newContext({ viewport: { width: 667, height: 375 } });
+  const page = await ctx.newPage();
+  await still(page, '/?seed=7&still&mainthread');
+  const out = await page.evaluate(() => ({ box: window.flock._runner.flock.homeBox, out: window.flock._runner.flock.homeOut }));
+  (out.out && out.box === null) ? ok('landscape: mark stands down (homeOut, no box)') : fail(`landscape: mark did not stand down (${JSON.stringify(out)})`);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(250); // let resize re-measure, then step the sim
+  await page.evaluate(() => { const r = window.flock._runner; for (let i = 0; i < 300; i++) r.flock.advance(1 / 60); });
+  const back = await page.evaluate(() => window.flock._runner.flock.homeBox);
+  back ? ok('portrait: the mark returns') : fail('portrait: the mark never came back');
+  // Phones fly the thinned grid (102 points), desktop the full 208.
+  const pts = await page.evaluate(() => window.flock._runner.flock.home.points.length / 2);
+  pts === 102 ? ok(`phone mark: thinned grid (${pts} points)`) : fail(`phone mark: expected 102 points, got ${pts}`);
+  await ctx.close();
+  const dctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const dpage = await dctx.newPage();
+  await still(dpage, '/?seed=7&still&mainthread', 60);
+  const dpts = await dpage.evaluate(() => window.flock._runner.flock.home.points.length / 2);
+  dpts === 208 ? ok(`desktop mark: full grid (${dpts} points)`) : fail(`desktop mark: expected 208 points, got ${dpts}`);
+  await dctx.close();
+  // Blocked storage must not break the theme switch (Chrome with site data off
+  // throws on the localStorage accessor itself).
+  const sctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const spage = await sctx.newPage();
+  const serrs = [];
+  spage.on('pageerror', e => serrs.push(e.message));
+  await spage.addInitScript(() => Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('denied', 'SecurityError'); } }));
+  await spage.goto(BASE + '/?seed=1&still'); await spage.waitForTimeout(400);
+  await spage.click('#theme-toggle'); await spage.waitForTimeout(300);
+  const sres = await spage.evaluate(() => ({ label: document.getElementById('theme-label').textContent, theme: document.documentElement.dataset.theme }));
+  (sres.label === 'Dark' && sres.theme === 'dark' && !serrs.length)
+    ? ok('blocked storage: theme still switches, label follows, no errors')
+    : fail(`blocked storage: ${JSON.stringify(sres)} errors: ${serrs.join(' | ')}`);
+  await sctx.close();
+}
+
 // --- budget ---------------------------------------------------------------
 console.log('\nbudget');
 {

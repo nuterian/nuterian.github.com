@@ -9,7 +9,8 @@ Dev-only. Nothing in here ships. `npm install` once, then:
 | `node still.mjs`       | inline no-JS SVG still → written into `../index.html`                |
 | `node og.mjs`          | `../img/og.png` from `?still&seed=2013&hour=9` — byte-reproducible     |
 | `node serve.mjs 4174`  | static server with gzip + cache headers (what GitHub Pages does)     |
-| `node check.mjs`       | the gate: axe, Lighthouse 100s, < 100 KB, reduced-motion, no-js       |
+| `node check.mjs`       | the gate: axe, Lighthouse 100s, < 100 KB, reduced-motion, no-js, behaviours |
+| `node engines.mjs`     | the same site in WebKit and Firefox (`npx playwright install webkit firefox` once) |
 | `node shots.mjs`       | contact sheet of every state → `out/contact-sheet.png`                |
 | `node crowd.mjs`       | are birds collecting in crannies? worst crowd + stuck count, per scroll |
 | `node flight.mjs`      | do they fly like birds? turn rate, one size, the beat, frame pacing; filmstrip |
