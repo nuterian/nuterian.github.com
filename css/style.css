@@ -257,9 +257,21 @@ body::before {
 .hero *, main *, .site-footer * { pointer-events: auto; }
 
 /* --- Hero ---------------------------------------------------------------- */
+/* The hero's text is anchored to the BOTTOM of this box, which is why the unit
+ * here is svh and not dvh. svh is the viewport at its SMALLEST — the height
+ * with the browser's chrome fully shown — so bottom-aligned content clears
+ * that chrome in every state it can be in. dvh is the current height, and it
+ * is only as trustworthy as the browser's reporting of it: iOS Chrome opened
+ * from another app (a link tapped in Messages or WhatsApp) lays the page out
+ * at the chrome-HIDDEN height while both bars are in fact on screen, so the
+ * box ran ~120px past the visible bottom and took the back half of the line
+ * and the whole github/linkedin/archive row down with it. Reported from a
+ * phone, and the arithmetic matches exactly: top bar + bottom bar.
+ * The cost is slack at the bottom once the chrome retracts, which shows a
+ * little more of the archive below — a strictly better failure than text
+ * under a toolbar, and the reason svh exists. */
 .hero {
   min-height: 100svh;
-  min-height: 100dvh;
   display: grid;
   align-content: end;
   padding: var(--gutter);

@@ -109,6 +109,28 @@ console.log('\nbehaviours');
   const dpts = await dpage.evaluate(() => window.flock._runner.flock.home.points.length / 2);
   dpts === 208 ? ok(`desktop mark: full grid (${dpts} points)`) : fail(`desktop mark: expected 208 points, got ${dpts}`);
   await dctx.close();
+  // The hero is bottom-anchored, so its box must be sized to the SMALL viewport:
+  // sized to dvh, iOS Chrome opened from another app lays out at the chrome-hidden
+  // height and buries the links row under the toolbar. The bug needs a real iOS
+  // browser to reproduce, so what is pinned here is the invariant itself — read
+  // off the stylesheet, because in a headless viewport svh and dvh compute equal
+  // and only the declaration can tell them apart.
+  {
+    const uctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const upage = await uctx.newPage();
+    await upage.goto(BASE + '/?seed=1&still');
+    const unit = await upage.evaluate(() => {
+      for (const sheet of document.styleSheets) {
+        let rules; try { rules = sheet.cssRules; } catch { continue; }
+        for (const r of rules) if (r.selectorText === '.hero') return r.style.minHeight;
+      }
+      return null;
+    });
+    unit === '100svh' ? ok(`hero is sized to the small viewport (${unit})`)
+                      : fail(`hero min-height is "${unit}" — bottom-anchored content must use 100svh`);
+    await uctx.close();
+  }
+
   // Blocked storage must not break the theme switch (Chrome with site data off
   // throws on the localStorage accessor itself).
   const sctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });

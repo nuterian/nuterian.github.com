@@ -457,8 +457,19 @@ years, captions, links, footer. `tnum` for numbers; `hanging-punctuation`;
 
 ## Layout
 
-One tall page. Hero is a full viewport (`100dvh`, safe-area aware), text bottom-left, the
-flock owns the rest; the hero text recedes on scroll (scroll-driven animation). The hero's
+One tall page. Hero is a full viewport (`100svh`, safe-area aware), text bottom-left, the
+flock owns the rest; the hero text recedes on scroll (scroll-driven animation).
+  **`svh`, not `dvh`, and deliberately:** the hero's text is anchored to the *bottom* of
+  that box, and `svh` is the viewport at its smallest — the height with the browser's
+  chrome fully shown — so bottom-aligned content clears the chrome in every state. `dvh`
+  is only as good as the browser's reporting of it, and iOS Chrome opened from another app
+  (a link tapped in Messages or WhatsApp) lays out at the chrome-*hidden* height while both
+  bars are on screen: the box ran ~120 px past the visible bottom and took the back half of
+  the line and the entire github/linkedin/archive row with it. Reported from a phone; the
+  arithmetic matches top bar + bottom bar exactly. The cost is slack at the bottom once the
+  chrome retracts — a little more of the archive shows — which is a strictly better failure
+  than text under a toolbar. The sheet keeps `dvh`: nothing in it is bottom-anchored and it
+  scrolls internally, so an over-reported height hides nothing you cannot reach. The hero's
 `archive ↓` link keeps a slow 2.6 s bob on its arrow, eased at both ends so it hangs at the
 top and bottom of the travel — the one piece of motion on the page that is *pointing* at
 something. It rides `translate` while the hover nudge stays on `transform`, because the two
