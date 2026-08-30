@@ -3,7 +3,8 @@
  *   • axe-core: zero violations, light & dark, desktop & phone, home + open sheet + 404
  *   • Lighthouse: 100 / 100 / 100 / 100 (perf, a11y, best-practices, seo) on desktop & mobile
  *   • Budget: first load (HTML + CSS + JS + fonts + favicon) < 100 KB over the wire (gzip)
- *   • Console: no errors, no failed requests, no third-party requests
+ *   • Console: no errors, no failed requests, no third-party requests except the
+ *     first-party count beacon (stats.jugalm.com — see js/count.js)
  *   • Motion: prefers-reduced-motion renders a still (no animation frames)
  * Usage: node check.mjs [baseURL]   (default http://localhost:4173)
  */
@@ -33,7 +34,10 @@ for (const scheme of ['light', 'dark']) {
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
     const thirdParty = [];
-    page.on('request', r => { if (!r.url().startsWith(BASE) && !r.url().startsWith('data:')) thirdParty.push(r.url()); });
+    // stats.jugalm.com is ours — Umami on our own box, named here rather than
+    // switching the check off, so anything ELSE that ever phones home still fails.
+    const COUNT_ORIGIN = 'https://stats.jugalm.com';
+    page.on('request', r => { if (!r.url().startsWith(BASE) && !r.url().startsWith('data:') && !r.url().startsWith(COUNT_ORIGIN)) thirdParty.push(r.url()); });
     page.on('requestfailed', r => errors.push('request failed ' + r.url()));
 
     for (const path of ['/', '/#kidscerts', '/404.html']) {

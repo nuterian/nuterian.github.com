@@ -661,7 +661,19 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
 
 ## Engineering constraints
 
-- No build step for the site. No framework, no analytics, no third-party requests
+- Counting is first-party and self-hosted: one `sendBeacon` to `stats.jugalm.com` (Umami on
+  a Hetzner box, behind Coolify's Traefik). No cookies, no `localStorage`, no fingerprint and
+  no client-side identifier — the server derives a visit from the request against a salt that
+  rotates daily, so yesterday's visitor cannot be joined to today's. It honours Do Not Track
+  and Global Privacy Control, skips `navigator.webdriver` (the gate suite would otherwise
+  invent dozens of visits per run) and skips any hostname that isn't `jugalm.com`. Being
+  first-party on our own subdomain also means blocklists don't eat it, so the numbers are
+  closer to true than a hosted tracker's would be. An opened archive sheet counts as its own
+  view, which is the one genuinely interesting thing this page can measure. `js/count.js`.
+  The dashboard is NOT public: Traefik routes only `/api/send` and `/script.js` on that host
+  and everything else 503s, because Umami ships with default credentials; it is reached over
+  Tailscale instead.
+- No build step for the site. No framework, and no third-party requests
   (the network tab is this repo). `view-source` is commented and unminified.
 - Everything is behind feature detection: no Worker/OffscreenCanvas → main thread;
   no View Transitions → plain; no `<dialog>` → `:target`; no script → still.

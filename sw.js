@@ -20,7 +20,7 @@ const V = 'flock-v1';
 const SHELL = [
   '/', '/404.html',
   '/css/style.css',
-  '/js/main.js', '/js/theme.js', '/js/hue.js', '/js/flock.js', '/js/mark.js', '/js/flock.worker.js', '/js/404.js',
+  '/js/main.js', '/js/theme.js', '/js/count.js', '/js/hue.js', '/js/flock.js', '/js/mark.js', '/js/flock.worker.js', '/js/404.js',
   '/fonts/geist.woff2', '/fonts/geist-mono.woff2',
   '/img/mark.svg',
 ];

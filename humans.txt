@@ -11,7 +11,8 @@
 
 /* SITE */
   Standards: HTML, CSS, JavaScript. Nothing else.
-  Components: one canvas, one worker, one dialog, no build step, no analytics.
+  Components: one canvas, one worker, one dialog, no build step, no third-party code.
+  Counting: self-hosted Umami, cookieless, DNT-honouring — see js/count.js.
   Last major redesign: 2026. Previous: 2013 — preserved at /2013/.
   Rules of the flock: separation, alignment, cohesion, you.
   Offline: yes. The flock does not need the internet.

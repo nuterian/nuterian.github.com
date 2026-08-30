@@ -5,6 +5,7 @@
 import { Runner, textPoints } from './flock.js';
 import { hueAt } from './hue.js';
 import { setTheme, nextTheme, lightStyle } from './theme.js';
+import { count } from './count.js';
 
 const root = document.documentElement;
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -57,4 +58,5 @@ addEventListener('keydown', e => {
 document.addEventListener('visibilitychange', () => post({ type: 'visible', value: !document.hidden }));
 // Even a wrong address installs the right site (see sw.js).
 if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+count();
 console.log('%cflock%c looked for this page too. It isn\'t here.', 'font-weight:600', '');

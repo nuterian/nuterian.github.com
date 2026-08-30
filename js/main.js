@@ -15,6 +15,7 @@
 import { Runner, MARK, MARK_ASPECT, DEFAULTS } from './flock.js';
 import { hueAt } from './hue.js';
 import { setTheme as applyTheme, nextTheme, lightStyle } from './theme.js';
+import { count } from './count.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -359,6 +360,9 @@ function openSheet(slug, { push = true } = {}) {
     root.classList.add('sheet-open');
     sheet.scrollTop = 0;
     current = slug;
+    // An opened sheet is its own view: which of the six people actually look
+    // at is the only thing worth knowing about this page (see count.js).
+    count(`/#${slug}`);
   };
   if (push) history.pushState({ slug }, '', `#${slug}`);
   go();
@@ -465,6 +469,8 @@ if ('serviceWorker' in navigator) {
   if (navigator.serviceWorker.controller && !navigator.onLine)
     console.log('%cflock%c offline — everything you see was already here.', 'font-weight:600', '');
 }
+
+count();
 
 // Console: one line, and a handle to poke at.
 console.log(
