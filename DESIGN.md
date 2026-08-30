@@ -138,8 +138,7 @@ fallback. The main thread only sends small messages (pointer, where home is).
   behaviour; frames where no step ran are not redrawn (a 120 Hz display renders 60, not
   120). Neighbour search is a uniform grid keyed by perception radius; the hot loops
   (step and render) allocate nothing — all scratch is preallocated. The canvas backing
-  store renders at DPR ≤ 1.5, invisible on 1.25 px shader-feathered strokes and cheaper
-  to composite than 2×.
+  store is capped by **area, not by ratio** — see *A pixel budget, not a ratio* below.
 - **Birds, not strokes:** each boid is a baseless triangle — head at its position, two wing
   arms swept back from the heading — with a fully procedural wingbeat: the phase advances
   with speed (~0.9 Hz at rest, ~4 Hz fleeing), the arms beat fore/aft around their
@@ -225,8 +224,22 @@ Compute is never the cost. The costs that were real, in the order we found them:
 3. **Layer size in software compositing**: on machines without GPU compositing (and in
    headless), a big transparent canvas is re-uploaded per frame and throttles the worker's
    whole frame loop. On real GPUs a viewport-sized layer at DPR ≤ 1.5 composites at 60 fps
-   (measured headed: 60 fps steady, mid-scatter included). So: DPR capped at 1.5 (invisible
-   for 1.25 px shader-feathered strokes), and the canvas draws only when a sim step ran.
+   (measured headed: 60 fps steady, mid-scatter included). So the backing store is capped
+   (see below), and the canvas draws only when a sim step ran.
+**A pixel budget, not a ratio.** The cap used to be a flat `DPR ≤ 1.5`, and that was the
+right number measured on the wrong axis. What the compositor pays for is the layer's *area*
+in device pixels; the ratio is only how you get there. A phone's canvas is about a quarter of
+a desktop's in CSS pixels, so a flat 1.5 spent a quarter of the budget on the sharpest screen
+in the room — a DPR-3 phone drew at 1.5 and the result was upscaled **2×**, which is visible,
+and was reported as the birds looking soft. So the ratio is now whatever keeps the layer under
+what a 1440×900 desktop has always cost (`PIX = 3.6 MP`), clamped to `[1.5, 2]`. It is a
+floor-raising rule rather than a true budget, deliberately: **1.5 stays the minimum**, so no
+large display renders worse than it did (a 5K one is over `PIX` and keeps what it had), and 2
+is the ceiling, past which nothing more is visible on 1.25 px shader-feathered strokes.
+Measured: phones go 1.5 → 2.0 at 1.6–2.0 MP, still *half* the 3.6 MP a laptop has always
+carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are untouched at
+1.5. Peak edge gradient on a phone crop rose 22 %, and Lighthouse mobile stayed 100.
+
 4. **Adaptive density was the disease, not the cure**: it read a depressed frame rate and
    thinned the mark. Gone — the count you ask for is the count you get.
 5. **The renderer must refuse a software GL context.** `failIfMajorPerformanceCaveat`
@@ -566,6 +579,19 @@ Each project's full-length 960 px screenshot (AVIF → WebP → the original PNG
   costs nothing until you point at something, so the first-load budget is untouched and a
   visitor who never opens a sheet never fetches an image. Skipped entirely when
   `navigator.connection.saveData` is set.
+- **The page behind a sheet does not scroll.** `<dialog>` puts the sheet in the top layer
+  and inerts the rest, but it does *not* lock the document, so on a phone the archive kept
+  scrolling away under the overlay. `html.sheet-open { overflow-y: hidden }` — on `html`,
+  not `body`, which is `position: relative` because it is the phone canvas's containing
+  block and so cannot be taken out of flow; and on the y axis only, so the `overflow-x:
+  clip` that keeps a 120 px-wider canvas from widening the document still stands.
+  `scrollbar-gutter: stable` on `html` means losing the scrollbar doesn't reflow the page
+  wider the moment a sheet opens (measured: archive width 832 px before and after). The
+  no-JS `:target` path needs none of it — it covers the viewport outright.
+- **The steppers look as dead as they are.** At the first and last project ← and → were
+  already `disabled` and did nothing, but looked identical to live ones, so the only
+  feedback for pressing one was silence. They now fade to 0.3 rather than disappearing:
+  where you are in a run of six is part of what the pair tells you.
 - A vertical ruler on wide screens reads “960 px — the width of the web in 2013”.
 - **In dark theme the screenshots are dimmed** (`filter: brightness(.88)`). They are 2013
   pages: full-bleed white. At full brightness on a 14 %-lightness sheet, opening one at

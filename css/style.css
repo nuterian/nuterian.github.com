@@ -109,7 +109,17 @@
  * matters for the phone canvas below: absolutely positioned and 120px wider
  * than the screen, it would otherwise widen the document and make a phone
  * shrink-to-fit the whole page (measured: a 390px viewport reporting 450). */
-html { -webkit-text-size-adjust: 100%; overflow-x: clip; }
+html { -webkit-text-size-adjust: 100%; overflow-x: clip; scrollbar-gutter: stable; }
+/* A modal sheet is modal: the page behind it must not scroll. <dialog> puts the
+ * sheet in the top layer and inerts the rest, but it does NOT lock the
+ * document — on a phone the archive kept scrolling away underneath the
+ * overlay. Locked on `html`, not `body`: body is `position: relative` because
+ * it is the phone canvas's containing block, so it cannot be taken out of flow.
+ * Only the y axis, so the `overflow-x: clip` above still stands, and
+ * `scrollbar-gutter: stable` means losing the scrollbar doesn't reflow the page
+ * a few pixels wider the moment a sheet opens. The no-JS `:target` path needs
+ * none of this: it covers the viewport outright. */
+html.sheet-open { overflow-y: hidden; }
 body {
   margin: 0;
   background: var(--bg);
@@ -162,10 +172,15 @@ img, svg { display: block; max-width: 100%; height: auto; }
   transition: color var(--t-tint), background-color var(--t-tint);
 }
 .sheet .close:hover, .sheet .close:focus-visible,
-.sheet-bar button:hover, .sheet-bar button:focus-visible {
+.sheet-bar button:not(:disabled):hover, .sheet-bar button:not(:disabled):focus-visible {
   color: var(--fg);
   background: var(--accent-soft);
 }
+/* At the first and last project there is nowhere to step. The buttons were
+ * already `disabled` and did nothing; they just didn't look it, so the only
+ * feedback for pressing one was silence. They fade instead of vanishing —
+ * where you are in a run of six is part of what the pair tells you. */
+.sheet-bar button:disabled { opacity: .3; cursor: default; }
 
 .mono { font-family: var(--mono); font-feature-settings: 'tnum'; font-size: .8125rem; letter-spacing: .01em; }
 .skip { position: absolute; left: var(--gutter); top: -3rem; padding: .5rem .75rem; background: var(--bg); border: 1px solid var(--hair); z-index: 10; }
