@@ -38,8 +38,15 @@ export function count(url = location.pathname + location.search + location.hash)
         language: navigator.language,
       },
     });
-    // application/json takes a CORS preflight, which the endpoint answers
-    // (204, allow-origin *). A Blob is how sendBeacon is given a content type.
-    navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' }));
+    // text/plain, and that is load-bearing. sendBeacon always sends with
+    // credentials mode "include"; application/json is not CORS-safelisted, so
+    // it forces a preflight, and a credentialed preflight REFUSES the
+    // wildcard Access-Control-Allow-Origin that Umami answers with — the
+    // beacon was rejected before it left the browser. A safelisted content
+    // type makes it a no-cors request instead: no preflight, nothing to
+    // reject, and the body is still parsed as JSON at the other end because
+    // Request.json() does not consult the header. The response is opaque,
+    // which is fine — there is nothing to read.
+    navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'text/plain;charset=UTF-8' }));
   } catch { /* counting is never worth an error in the console */ }
 }
