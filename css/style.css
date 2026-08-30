@@ -64,7 +64,7 @@
   /* The light of the hour (main.js: applyLight, from hue.js: lightAt). Written
    * here so the page still looks lit with no script at all — these defaults are
    * a mid-morning sun, which is where the wash sits before JS says otherwise. */
-  --light-x: 22%; --light-y: 10%; --glow: 0.7;
+  --light-x: 22%; --light-y: 10%; --glow: 0.89;
   /* The wash's colour is the hour's own hue, so daylight is gold and the small
    * hours are blue without a second palette. --glow scales its alpha: the wash
    * is ambient light, and there is less of it at night.
@@ -74,8 +74,8 @@
    * dark --bg's own hue, nearly drained of chroma. The clock still moves both.
    * Tuned per theme, not symmetrically: the same wash multiplies a near-black
    * page and merely tints a near-white one. DESIGN.md, "Light". */
-  --wash: light-dark(oklch(76% 0.15 var(--hue) / calc(var(--glow) * 0.15)),
-                     oklch(68% 0.045 260 / calc(var(--glow) * 0.17)));
+  --wash: light-dark(oklch(76% 0.15 var(--hue) / calc(var(--glow) * 0.17)),
+                     oklch(68% 0.045 260 / calc(var(--glow) * 0.22)));
 
   /* The one theme-varying value that isn't a colour — see below. */
   --shot-filter: none;

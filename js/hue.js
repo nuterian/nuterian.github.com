@@ -79,11 +79,12 @@ export function lightAt(date = new Date(), dark = false, hue = hueAt(date)) {
     az: (a0 + (a1 - a0) * s) * Math.PI / 180,
     elev,
     glint: power * (0.15 + 0.85 * (1 - elev) ** 1.5),  // raking glints, noon flattens
-    // The wash is ambient, not raking. `power` COMPRESSES here rather than
-    // multiplying: a dim source still lights a page you have adapted to, and
-    // moonlight reads as moonlight because it is cool, not because it is
-    // faint. The term is 1 at full sun, so daylight is untouched.
-    glow: (0.55 + 0.45 * power) * (0.45 + 0.55 * elev),
+    // The wash is ambient, not raking. BOTH terms COMPRESS rather than
+    // multiply — a dim source, or a low one, still lights a page you have
+    // adapted to. Elevation used to multiply raw, and its floor fell on the
+    // same hours power dips, so the two troughs stacked and dusk went unlit
+    // (DESIGN.md, "Light"). Each is 1 at noon, so daylight is untouched.
+    glow: (0.55 + 0.45 * power) * (0.72 + 0.28 * elev),
     // Lit colour. The THEME says which light you are under: a light page is
     // daylit, and takes the hour's own hue — rose at dawn, gold at noon. A dark
     // page is a night page, and its light is the moon, which is one colour at

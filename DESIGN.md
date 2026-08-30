@@ -305,16 +305,22 @@ straight up), an **elevation** (0 on the horizon, 1 overhead), a **glint** stren
   and flashes off it; noon comes straight down on everything equally and barely glints at
   all. `power · (0.15 + 0.85 · (1 − elev)^1.5)` — about 0.65 at 7am and 0.16 at noon, scaled
   down again at night, because moonlight is dim as well as cool.
-- **Glow follows elevation directly**, and the source's brightness only *compresses* it:
-  `(0.55 + 0.45 · power) · (0.45 + 0.55 · elev)`. The wash is ambient light, so there is most
-  of it at noon and least at 3am — the two curves pull opposite ways on purpose, and the page
-  is brightest when the birds are flattest. `power` deliberately does **not** multiply here,
-  the way it does in `glint`. It used to, and the moonlight was invisible: `power` is 0.45 for
-  the moon, the elevation term cut it again, and night landed at a four-level lift on a
-  near-black page. That was implementing "moonlight is dim" photometrically, which is the
-  wrong model — the eye is adapted to a dark page, and what makes moonlight read as moonlight
-  is that it is *cool*, which the tint already handles. Faintness was doing no work except
-  hiding it. Compressed instead, the term is exactly 1 at full sun, so no daylight hour moved.
+- **Glow follows elevation, and both terms *compress* rather than multiply:**
+  `(0.55 + 0.45 · power) · (0.72 + 0.28 · elev)`. The wash is ambient light, so there is most
+  of it at noon and least at 3am — glint and glow pull opposite ways on purpose, and the page
+  is brightest when the birds are flattest. Neither term multiplies the way `power` does in
+  `glint`, and both learned it the same way. `power` went first: it used to multiply, and the
+  moonlight was invisible — 0.45 for the moon, cut again by elevation, landing at a four-level
+  lift on a near-black page. That is "moonlight is dim" implemented photometrically, which is
+  the wrong model. The eye is adapted to a dark page, and what makes moonlight read as
+  moonlight is that it is *cool*, which the tint already handles; faintness was doing no work
+  except hiding it. **Elevation was still multiplying raw, and it had the same bug.** Its floor
+  (0.45) fell on exactly the hours `power` also dips — the sun setting at 19.4 and the moon
+  setting at 5.4 — so the two troughs stacked and the wash all but vanished for the hour either
+  side of each handover: glow 0.31 at 20:00 against 0.97 at noon, a 3.1× swing, and the evening
+  page looked unlit. Compressed to `0.72 + 0.28 · elev` the day's range is 0.48–0.99, dusk and
+  night come up 30–75 %, and noon moves by 1 % — each term is exactly 1 at full noon, so no
+  daylight hour moved.
 - **The theme says which light you are under; the clock says where it is.** A light page is
   a daylit page: its tint takes the hour's own hue, so it is rose at dawn and gold at noon —
   no second palette. A dark page is a *night* page, and its light is the moon, which is one
@@ -351,10 +357,11 @@ And the two themes are tuned **separately, not symmetrically**. The same wash do
 work on each: over a near-black page it multiplies what is already there, over near-white
 paper it only adds a small fraction to something already bright. So light mode's wash sits
 *below* its background in lightness (76 % under 98.2 %) and dark mode's sits *above* (68 %
-over 14 %), at a higher alpha. At the strongest on-screen point: ~50 levels in light, and in
-dark ~73 at noon and ~39 at midnight — the dark figures run higher because a cool wash on a
-blue-black ground lifts all three channels at once, where the light theme's warm one mostly
-moves blue. Equal alphas produced one visible effect and one invisible one.
+over 14 %), at a higher alpha — 0.17 against 0.22, since a cool wash on a blue-black ground
+must lift all three channels where the light theme's warm one mostly moves blue. Equal alphas
+produced one visible effect and one invisible one. Measured as the sRGB distance between the
+bloom's core and the far corner, the wash now runs 20–37 levels in light and 21–36 in dark
+across the whole day, against 10–33 and 11–27 before the elevation fix and this alpha.
 
 It breathes over 45 s on `transform` and `opacity` **only**. Those are compositor
 properties: the gradient rasterises once and is never repainted. A gradient that animated
