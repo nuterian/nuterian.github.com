@@ -202,6 +202,7 @@ export class Flock {
     this.home = null;       // {points, aspect, size:{w,h}} — the mark itself
     this.homeBox = null;    // {x,y,w,h} view space — where it currently sits (animated)
     this._homeGoal = null;  // where the placement solver currently wants it
+    this.homeLure = null;   // {x,y} view space — a spot to prefer over the centre
     this._dv = { x: 0, y: 0 }; // desired-velocity scratch, reused per bird
     this.tempo = 1;         // global speed multiplier (dims when a sheet is open)
     this.setCount(opts.count || 120);
@@ -289,7 +290,7 @@ export class Flock {
     this.home.size = size;
     this._assign(false);
   }
-  clearHome() { this.home = null; this.homeBox = null; this._homeGoal = null; this.tgt = null; }
+  clearHome() { this.home = null; this.homeBox = null; this._homeGoal = null; this.tgt = null; this.homeLure = null; }
 
   // Find the best place for the mark box in the current viewport: least
   // overlap with content (view space), fully on-canvas, gently preferring
@@ -315,8 +316,11 @@ export class Flock {
         const iy = Math.min(y0 + bh, oy1) - Math.max(y0, oy0);
         if (ix > 0 && iy > 0) pen += ix * iy;
       }
-      const dx = cx - w / 2, dy = cy - h * 0.46;
-      pen += Math.sqrt(dx * dx + dy * dy) * 14;
+      // A lure moves the preferred centre and pulls harder — but it still loses
+      // to overlap, so the mark never lands on the words.
+      const L = this.homeLure;
+      const dx = cx - (L ? L.x : w / 2), dy = cy - (L ? L.y : h * 0.46);
+      pen += Math.sqrt(dx * dx + dy * dy) * (L ? 60 : 14);
       return pen;
     };
     const xs0 = bw / 2, xs1 = Math.max(xs0, w - bw / 2);
@@ -338,7 +342,8 @@ export class Flock {
       }
       stepX /= 2; stepY /= 2;
     }
-    if (this._homeGoal) {
+    // Hysteresis stops near-ties hopping; a lure is a request, not a tie.
+    if (this._homeGoal && !this.homeLure) {
       const cur = score(this._homeGoal.x + S.w / 2, this._homeGoal.y + S.h / 2);
       if (cur <= bestPen * 1.15 + 2500) { bcx = this._homeGoal.x + S.w / 2; bcy = this._homeGoal.y + S.h / 2; }
     }
@@ -1040,6 +1045,7 @@ export class Runner {
       case 'home': f?.setHome(m.points, m.aspect, m.size); if (this.still) this.settle(); break;
       case 'home-size': f?.setHomeSize(m.size); if (this.still) this.settle(180); break;
       case 'home-off': f?.clearHome(); break;
+      case 'lure': if (f) f.homeLure = m.at || null; break;
       case 'tempo': if (f) f.tempo = m.value; break;
       case 'count': f?.setCount(m.value); break;
       case 'params': if (f) Object.assign(f.p, m.params); break;

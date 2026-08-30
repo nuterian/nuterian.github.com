@@ -401,7 +401,47 @@ flock owns the rest; the hero text recedes on scroll (scroll-driven animation). 
 top and bottom of the travel — the one piece of motion on the page that is *pointing* at
 something. It rides `translate` while the hover nudge stays on `transform`, because the two
 compose and a running animation would otherwise outrank the hover outright. Archive
-below: numbered rows (name · medium in mono), 56 px tall, hairline rules. The hero text
+below: numbered rows (name · medium in mono), 56 px tall, hairline rules.
+
+### Two tenses
+
+`Making` and `Archive` are the **same component**, twice. Same container, same hairline list,
+same four-column row. Making them differ in appearance would have been the obvious move and
+the wrong one: they are both *work*, and the page has one way of listing work. Three things
+carry the difference instead:
+
+- **The arrow.** `↗` leaves for a living site; `→` opens a dialog here. The archive is
+  screenshots of things that are finished and offline; a project still being made has
+  somewhere to *go*, so the row is a plain link and there is no sheet at all — sending you to
+  the running thing beats any screenshot of it.
+- **The header.** `Making · 2026 → · in progress` against `Archive · 2012 – 2014 · freelance
+  web design`. The open-ended `→`, with no year after it, is the footer's `2013 → 2026`
+  arrow doing the same job.
+- **The flock.** The archive is an obstacle the birds route around — the past, under glass.
+  Point at a Making row and the mark **condenses to 42 % and comes over**, then drifts back
+  when you leave. Hover also switches the pointer's repel off for that row, so birds it just
+  called are not scattered by the cursor that called them.
+
+Both sections' rows are numbered from `01`. Numbering is per section, so each list counts its
+own contents and neither renumbers when the other grows.
+
+**Why it moves the mark and not the birds.** The first design called a few birds over with the
+`attract` the taps already use. It cannot work: in `home` every bird is committed to its own
+point on the mark — measured, 140 of 140 in state 0 — and at *twenty times* the intended force
+the flock still did not visibly answer. What can move is where the mark itself wants to be.
+`Flock.homeLure` is a point the placement solver prefers over the viewport's centre, at a
+weight of 60/px against the usual 14, and hysteresis is skipped while a lure is set (a lure is
+a request, not a near-tie). It never outranks the **overlap** term, so the mark comes as close
+as it can and still never lands on the words — measured, birds standing on text go *down*
+during the gesture, 23 to 18. The glide is the same eased, capped one the mark already uses
+when the page scrolls; nothing new animates.
+
+It has to shrink as well as move. At full size the mark cannot fit beside a 60 rem column, so
+overlap rightly pins it a screen away and nothing reads as having happened. Condensed and
+tucked under the line you are pointing at, the gesture is legible. `LURE_SCALE` is 0.42.
+
+Only `.row[data-slug]` is wired to the dialogs — the Making row is a link out, and the old
+`$$('.row')` would have caught it, cancelled its click and opened a sheet for `undefined`. The hero text
 recedes on a scroll-driven animation whose range is a **percentage of the scrollable
 distance**, not a `vh` figure: this page is short — one `100dvh` hero over an archive of six
 — so on a tall window the whole document scrolls less than one viewport height and the hero

@@ -33,7 +33,7 @@ let stats = { fps: 0, n: 0 };
 // Archive state (used across sections; the archive itself is §4).
 const sheet = $('#sheet');
 const sheetTitle = $('#sheet-title');
-const rows = $$('.row');
+const rows = $$('.row[data-slug]');   // archive rows only — Making's row is a link out
 const slugs = rows.map(r => r.dataset.slug);
 const homes = new Map(); // slug → where its .sheet lives when closed
 let opener = null, current = null; // the row that opened the sheet; the open slug
@@ -206,6 +206,26 @@ heroBound.addEventListener('change', () => post({ type: 'scroll', y: scrollOffse
 /* ---------------------------------------------------------------------------
  * 3. What you do
  * ------------------------------------------------------------------------- */
+// Point at something being made and the mark condenses and comes over, then
+// drifts back. It moves the MARK, not the birds — in HOME every bird is
+// committed to its point, so an attractor beside them does nothing (DESIGN.md,
+// "Two tenses"). Small, because at full size it cannot fit beside a 60rem
+// column and overlap rightly outranks the lure.
+let overMaking = false;
+const finePointer = matchMedia('(pointer: fine)');
+const LURE_SCALE = 0.42;
+function lure(row) {
+  if (!row) { post({ type: 'lure', at: null }); post({ type: 'home-size', size: homeSize() }); return; }
+  const r = row.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+  const full = homeSize();
+  post({ type: 'home-size', size: { w: full.w * LURE_SCALE, h: full.h * LURE_SCALE } });
+  post({ type: 'lure', at: { x: r.left + r.width / 2 - c.left, y: r.top + r.height / 2 - c.top } });
+}
+if (!STILL) $$('#making .row').forEach(row => {
+  row.addEventListener('mouseenter', () => { if (finePointer.matches) { overMaking = true; lure(row); } });
+  row.addEventListener('mouseleave', () => { overMaking = false; lure(null); });
+});
+
 // Pointer: mouse/pen repel, in document coordinates, at most once per frame.
 let pointerRaf = 0, px = 0, py = 0;
 addEventListener('pointermove', e => {
@@ -214,7 +234,9 @@ addEventListener('pointermove', e => {
   if (!pointerRaf) pointerRaf = requestAnimationFrame(() => {
     pointerRaf = 0;
     const r = canvas.getBoundingClientRect();   // pointer in canvas-local px
-    post({ type: 'pointer', x: px - r.left, y: py - r.top, on: true });
+    // Repel off over a Making row: birds it just called over should not then be
+    // scattered by the very cursor that called them.
+    post({ type: 'pointer', x: px - r.left, y: py - r.top, on: !overMaking });
   });
 }, { passive: true });
 addEventListener('pointerleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
