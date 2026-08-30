@@ -109,25 +109,32 @@ console.log('\nbehaviours');
   const dpts = await dpage.evaluate(() => window.flock._runner.flock.home.points.length / 2);
   dpts === 208 ? ok(`desktop mark: full grid (${dpts} points)`) : fail(`desktop mark: expected 208 points, got ${dpts}`);
   await dctx.close();
-  // The hero is bottom-anchored, so its box must be sized to the SMALL viewport:
-  // sized to dvh, iOS Chrome opened from another app lays out at the chrome-hidden
-  // height and buries the links row under the toolbar. The bug needs a real iOS
-  // browser to reproduce, so what is pinned here is the invariant itself — read
-  // off the stylesheet, because in a headless viewport svh and dvh compute equal
-  // and only the declaration can tell them apart.
+  // The hero is bottom-anchored and must equal the viewport you can SEE. No
+  // static unit manages it on every browser (style.css has the measurements),
+  // so JS drives --vh from visualViewport and svh is only the no-script floor.
+  // Two things are pinned: that the declaration still falls back to svh and
+  // never to dvh — headless they compute equal, so only the declaration can
+  // tell them apart — and that the JS path actually lands on the visible height.
   {
     const uctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const upage = await uctx.newPage();
     await upage.goto(BASE + '/?seed=1&still');
-    const unit = await upage.evaluate(() => {
+    await upage.waitForTimeout(400);
+    const r = await upage.evaluate(() => {
+      let decl = null;
       for (const sheet of document.styleSheets) {
         let rules; try { rules = sheet.cssRules; } catch { continue; }
-        for (const r of rules) if (r.selectorText === '.hero') return r.style.minHeight;
+        for (const rule of rules) if (rule.selectorText === '.hero') decl = rule.style.minHeight;
       }
-      return null;
+      return { decl, hero: Math.round(document.querySelector('.hero').getBoundingClientRect().height),
+               visible: Math.round(visualViewport.height) };
     });
-    unit === '100svh' ? ok(`hero is sized to the small viewport (${unit})`)
-                      : fail(`hero min-height is "${unit}" — bottom-anchored content must use 100svh`);
+    (r.decl && r.decl.includes('svh') && !r.decl.includes('dvh'))
+      ? ok(`hero falls back to the small viewport ("${r.decl}")`)
+      : fail(`hero min-height is "${r.decl}" — must fall back to svh, never dvh`);
+    (r.hero === r.visible)
+      ? ok(`hero fills the visible viewport (${r.hero}px)`)
+      : fail(`hero is ${r.hero}px but the visible viewport is ${r.visible}px`);
     await uctx.close();
   }
 

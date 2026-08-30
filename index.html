@@ -53,6 +53,11 @@
   // there is never a flash of the wrong one.
   document.documentElement.classList.add('js');
   try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+  // …and the height of the viewport you can actually see, which no CSS unit
+  // gets right on every browser (see .hero in style.css). Set here rather than
+  // in main.js so the hero is laid out once, at the right height, and nothing
+  // shifts after paint. main.js keeps it up to date from here on.
+  try { var v = window.visualViewport; if (v && v.scale <= 1.01) document.documentElement.style.setProperty('--vh', v.height + 'px'); } catch (e) {}
 </script>
 <script type="module" src="js/main.js"></script>
 </head>

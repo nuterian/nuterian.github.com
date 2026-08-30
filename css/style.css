@@ -257,21 +257,24 @@ body::before {
 .hero *, main *, .site-footer * { pointer-events: auto; }
 
 /* --- Hero ---------------------------------------------------------------- */
-/* The hero's text is anchored to the BOTTOM of this box, which is why the unit
- * here is svh and not dvh. svh is the viewport at its SMALLEST — the height
- * with the browser's chrome fully shown — so bottom-aligned content clears
- * that chrome in every state it can be in. dvh is the current height, and it
- * is only as trustworthy as the browser's reporting of it: iOS Chrome opened
- * from another app (a link tapped in Messages or WhatsApp) lays the page out
- * at the chrome-HIDDEN height while both bars are in fact on screen, so the
- * box ran ~120px past the visible bottom and took the back half of the line
- * and the whole github/linkedin/archive row down with it. Reported from a
- * phone, and the arithmetic matches exactly: top bar + bottom bar.
- * The cost is slack at the bottom once the chrome retracts, which shows a
- * little more of the archive below — a strictly better failure than text
- * under a toolbar, and the reason svh exists. */
+/* The hero fills the viewport you can actually SEE, and its text is anchored to
+ * the BOTTOM of that box — which makes the height the whole problem. No static
+ * unit is right, because the browser's chrome is not one shape:
+ *   dvh — the current height, but only as honestly as the browser reports it.
+ *         iOS Chrome opened from another app (a link tapped in Messages) lays
+ *         out at the chrome-HIDDEN height while the bottom bar is on screen:
+ *         the box ran ~120px long and buried the links row under the toolbar.
+ *   svh — the height with chrome at its LARGEST, i.e. assuming a top bar AND a
+ *         bottom bar. That same mode has no top bar, so the box came up ~46px
+ *         short and the archive's first heading showed above the fold — which
+ *         is not what you see once you scroll and the chrome settles, so the
+ *         page appeared to have two different first impressions.
+ * visualViewport.height is neither guess: it is what is on screen right now.
+ * JS sets --vh from it, before first paint (index.html) and on every change
+ * (main.js). svh stays as the fallback here, because a wrong-by-46px hero is
+ * the right way to fail when there is no script — nothing is ever hidden. */
 .hero {
-  min-height: 100svh;
+  min-height: var(--vh, 100svh);
   display: grid;
   align-content: end;
   padding: var(--gutter);

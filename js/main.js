@@ -80,6 +80,23 @@ labelTheme(root.dataset.theme || 'system');
 darkMQ.addEventListener('change', pushStyle);
 
 /* ---------------------------------------------------------------------------
+ * The visible viewport. index.html sets --vh before first paint; this keeps it
+ * true as the browser's chrome comes and goes. See .hero in style.css for why
+ * neither svh nor dvh can do this job on its own.
+ *
+ * Pinch-zoom is deliberately ignored: zoomed in, visualViewport.height is the
+ * slice of the page you are magnifying, not the window — honouring it would
+ * collapse the hero the moment someone zoomed a screenshot in the archive.
+ * ------------------------------------------------------------------------- */
+if (window.visualViewport) {
+  const vv = visualViewport;
+  let vhRaf = 0;
+  const applyVH = () => { vhRaf = 0; if (vv.scale <= 1.01) root.style.setProperty('--vh', vv.height + 'px'); };
+  vv.addEventListener('resize', () => { if (!vhRaf) vhRaf = requestAnimationFrame(applyVH); }, { passive: true });
+  applyVH();
+}
+
+/* ---------------------------------------------------------------------------
  * 2. The flock
  * ------------------------------------------------------------------------- */
 let canvas = $('#flock');

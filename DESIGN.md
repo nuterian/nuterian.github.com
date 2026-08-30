@@ -457,18 +457,26 @@ years, captions, links, footer. `tnum` for numbers; `hanging-punctuation`;
 
 ## Layout
 
-One tall page. Hero is a full viewport (`100svh`, safe-area aware), text bottom-left, the
+One tall page. Hero is a full viewport (the *visible* one — see below — safe-area aware), text bottom-left, the
 flock owns the rest; the hero text recedes on scroll (scroll-driven animation).
-  **`svh`, not `dvh`, and deliberately:** the hero's text is anchored to the *bottom* of
-  that box, and `svh` is the viewport at its smallest — the height with the browser's
-  chrome fully shown — so bottom-aligned content clears the chrome in every state. `dvh`
-  is only as good as the browser's reporting of it, and iOS Chrome opened from another app
-  (a link tapped in Messages or WhatsApp) lays out at the chrome-*hidden* height while both
-  bars are on screen: the box ran ~120 px past the visible bottom and took the back half of
-  the line and the entire github/linkedin/archive row with it. Reported from a phone; the
-  arithmetic matches top bar + bottom bar exactly. The cost is slack at the bottom once the
-  chrome retracts — a little more of the archive shows — which is a strictly better failure
-  than text under a toolbar. The sheet keeps `dvh`: nothing in it is bottom-anchored and it
+  **The hero is sized to the viewport you can actually see, and no static unit could do
+  it.** Its text is anchored to the *bottom* of the box, so the height is the whole problem,
+  and the browser's chrome is not one shape. `dvh` is the current height but only as honest
+  as the browser's reporting: iOS Chrome opened from another app (a link tapped in Messages
+  or WhatsApp) lays out at the chrome-*hidden* height while the bottom bar is on screen — the
+  box ran ~120 px long and buried the github/linkedin/archive row under the toolbar. `svh` is
+  the height with chrome at its *largest*, i.e. assuming a top bar **and** a bottom bar; that
+  same mode has no top bar, so the box came up ~46 px short and the archive's first heading
+  showed above the fold — a first impression that disagreed with the settled state you get
+  after scrolling. Both were measured from phone screenshots. `visualViewport.height` is
+  neither guess: it is what is on screen. JS sets `--vh` from it in the head, *before first
+  paint*, so the hero is laid out once at the right height and CLS stays 0, and `main.js`
+  keeps it current on `visualViewport` resize (rAF-coalesced). Pinch-zoom is ignored — zoomed
+  in, that height is the slice being magnified, and honouring it would collapse the hero the
+  moment someone zoomed a screenshot. `min-height: var(--vh, 100svh)` keeps `svh` as the
+  no-script floor: wrong by 46 px, but never hiding anything. Verified at 718 / 724 / 844 px
+  of visible height — hero matches all three, links clear the bottom by the full gutter, the
+  archive never peeks. The sheet keeps `dvh`: nothing in it is bottom-anchored and it
   scrolls internally, so an over-reported height hides nothing you cannot reach. The hero's
 `archive ↓` link keeps a slow 2.6 s bob on its arrow, eased at both ends so it hangs at the
 top and bottom of the travel — the one piece of motion on the page that is *pointing* at
