@@ -387,8 +387,16 @@ and `og.png` is byte-identical run to run. `?hue=` still pins the accent on its 
 
 ## Type
 
-Geist and Geist Mono, self-hosted, subset to ASCII + typographic punctuation
-(`tools/fonts.mjs`, 35 KB for both, full variable weight). A metric-compatible fallback face
+Geist and Geist Mono, self-hosted, subset twice over by `tools/fonts.mjs`: to ASCII +
+typographic punctuation, and to the weights the page actually sets. The CSS asks for exactly
+three — 400 (body), 450 (`.row .name`), 500 (the name and the `h2`s) — so the `wght` axis
+ships clipped to **400–500** rather than the variable font's native 100–900, in the subsetter
+(`variationAxes`) and in both `@font-face` blocks. A variable axis pays for its whole range in
+delta data whether or not anyone wears the ends, and the ends here were a third of the
+payload: 35.0 KB → 22.4 KB for the pair, the single largest line item on the page. Nothing
+rendered moved — the instances at 400/450/500 are the same outlines, differing only in
+antialiasing coverage at glyph edges. Weights outside the range would now clamp to the
+nearest end, so **the range and the CSS have to be changed together**. A metric-compatible fallback face
 (`size-adjust`, `ascent-override`) keeps CLS at 0 while they load. Mono only for metadata:
 years, captions, links, footer. `tnum` for numbers; `hanging-punctuation`;
 `text-wrap: balance` on the name, `pretty` on the line; the *J* is optically outdented.
@@ -505,7 +513,7 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
 - Everything is behind feature detection: no Worker/OffscreenCanvas → main thread;
   no View Transitions → plain; no `<dialog>` → `:target`; no script → still.
 - **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; Lighthouse 100/100/100/100 on
-  desktop and mobile; first load < 100 KB gzip (currently ~86 KB); no console errors;
+  desktop and mobile; first load < 100 KB gzip (currently 86.9 KB); no console errors;
   reduced motion is actually still; no-JS still and `:target` work.
 - **More instruments, not part of the gate**: `tools/fps.mjs` — the flock's achieved frame
   rate across worker/main-thread and canvas configurations (the metric that matters — see
@@ -527,7 +535,7 @@ js/flock.worker.js
 js/hue.js         hue AND light of the day, OKLCH → sRGB
 js/mark.js        the 2013 mark as points
 js/404.js
-fonts/            subset Geist
+fonts/            subset Geist (glyphs and wght 400–500)
 img/archive/      AVIF/WebP screenshots
 img/mark.svg      favicon, theme-aware
 img/og.png        generated from the site itself (?still&seed=2013&hour=9)
