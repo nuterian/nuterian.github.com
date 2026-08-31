@@ -696,6 +696,30 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   scrolled); archive screenshots are cached as they are seen; the cache version exists to
   *drop* things, not to update them — updates flow through on their own. Offline, the
   console says so: `flock offline — everything you see was already here.`
+- **None of the paragraph above was true, because a worker's own `fetch` goes through the
+  HTTP cache like anyone else's** — and these assets are served `immutable` for a year. The
+  background refresh was handed back the very bytes it was trying to replace, and stored
+  them again, so a cached asset could never be updated at all: not after one reload, not
+  after ten. Found the way you would expect — an edited stylesheet that would not show up on
+  `localhost` — and it reproduces in four steps: install the worker, edit `css/style.css`,
+  reload three times, watch nothing happen. It is now a rule with two halves:
+  - **A refresh that has something to replace bypasses the HTTP cache** (`cache: 'no-cache'`
+    — revalidate, take a 304 when nothing moved), and **the precache bypasses it outright**
+    (`cache: 'reload'`), so an install cannot bake in whatever the browser was holding. `V`
+    is bumped to `flock-v2` to drop the caches the old code poisoned; measured, a poisoned
+    browser recovers in two reloads — one to install alongside, one to take over and drop
+    the old cache.
+  - **A refresh that has nothing cached deliberately does not.** There is no update to miss,
+    and there the browser's cache is a resource rather than an obstacle: it is what serves an
+    archive screenshot offline on a *first* visit. The worker registers on `load` and only
+    controls the page afterwards, so a deep-linked sheet's `<img>` is requested before it is
+    listening and never passes through it — measured, the image is absent from the worker's
+    cache after a first visit, **under the old code too**. Which means the offline gate has
+    always been passing on the browser's disk cache while appearing to test this worker. It
+    still passes, and now the reason is written down. From the second visit on the page is
+    controlled from the start and a screenshot you look at really is cached here; the
+    difference matters because GitHub Pages sends a far shorter `max-age` than the dev
+    server's year.
 - **One copy of the plumbing** (`js/theme.js`): which theme is in force, how a mode is
   applied and remembered, how the hour's light lands on the page and the flock. main.js
   and 404.js each carried a private copy and the copies drifted — a missing modifier

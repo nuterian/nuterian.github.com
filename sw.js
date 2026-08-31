@@ -15,8 +15,19 @@
  *
  * The shell is precached at install, so offline works even for a visitor who
  * never scrolled; the archive's screenshots are cached as they are seen.
+ *
+ * BOTH refreshes above have to say so explicitly, because a service worker's
+ * own `fetch` goes through the HTTP cache like any other — and these assets are
+ * served `immutable` for a year. Left plain, the revalidation was answered from
+ * that cache with the very bytes it was trying to replace, and stored them
+ * again: a stylesheet could not be updated at all, on any number of reloads.
+ * Measured on the dev server, which is the honest case — it serves the same
+ * headers GitHub Pages does and its files change every few minutes. So the
+ * background refresh sends a conditional request (`no-cache`: revalidate, take
+ * a 304 when nothing moved) and the precache bypasses the cache outright
+ * (`reload`), which is the only way "at most one visit behind" is true.
  */
-const V = 'flock-v1';
+const V = 'flock-v2';   // bumped to drop caches poisoned by the above
 const SHELL = [
   '/', '/404.html',
   '/css/style.css',
@@ -26,7 +37,9 @@ const SHELL = [
 ];
 
 addEventListener('install', (e) => {
-  e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL)).then(() => skipWaiting()));
+  e.waitUntil(caches.open(V)
+    .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' }))))
+    .then(() => skipWaiting()));
 });
 
 addEventListener('activate', (e) => {
@@ -65,7 +78,14 @@ addEventListener('fetch', (e) => {
   e.respondWith((async () => {
     const c = await caches.open(V);
     const hit = await c.match(req);
-    const refresh = fetch(req)
+    // The cache mode depends on whether there is anything to revalidate. Holding
+    // a copy, the background refresh must reach past the HTTP cache (`no-cache`)
+    // or it is handed back the very bytes it is trying to replace — see the note
+    // at the top. Holding NOTHING, there is no update to miss and the browser's
+    // own cache is a resource, not an obstacle: it is what serves an archive
+    // screenshot offline that this worker never got to see, because on a first
+    // visit the <img> is requested before the worker controls the page.
+    const refresh = fetch(req, hit ? { cache: 'no-cache' } : undefined)
       .then((res) => { if (res.ok) c.put(req, res.clone()); return res; })
       .catch(() => hit);
     if (hit) { e.waitUntil(refresh.catch(() => {})); return hit; }
