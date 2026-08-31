@@ -966,14 +966,18 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
     other. A simulation that fails to load must not hide the still that replaces it.
 - Everything is behind feature detection: no Worker/OffscreenCanvas → main thread;
   no View Transitions → plain; no `<dialog>` → `:target`; no script → still.
-- **All four gates run in CI**, in three jobs. The WebKit/Firefox job retries **once, and only
-  on a crash**: WebKit on the runner occasionally dies mid-run with "Target page, context or
-  browser has been closed", which is a browser process death rather than a failed assertion —
-  seen once, green on a re-run with no code change. The retry greps for exactly that signature.
-  Anything else — an axe violation, a broken sheet, a dead flock — fails on the first run and
-  is never retried, because a gate that retries until it passes stops being believed. If the
-  browser dies twice, that is the news and the job fails. All three branches were exercised
-  before it shipped: violation → fails at once, crash → retries, crash twice → fails. `check.mjs` was the only one that did, which
+- **All four gates run in CI**, in three jobs. The WebKit/Firefox job **retries once, and never over a
+  finding**. It is flaky on the runner in more than one way and none of them has been the
+  site: WebKit has died mid-run ("Target page, context or browser has been closed"), and a
+  click on an archive row has timed out after resolving and scrolling to it. Both went green
+  on a re-run of the identical commit — one of them on a push that changed no site code at
+  all. The first version of the rule grepped for the crash string, and the second flake walked
+  straight past it, so the rule is not a list of symptoms: `engines.mjs` prints `✗` when it has
+  a finding about the SITE, and a run that printed one is never retried however it ended. A run
+  that fell over without reporting anything gets one more go, because that is the environment,
+  not the page. Fall over twice and the job fails. All four branches were exercised against a
+  stubbed command before it shipped: a finding fails at once, a browser death retries, a
+  timeout retries, and a second collapse still fails. `check.mjs` was the only one that did, which
   left `flight.mjs`, `crowd.mjs` and `engines.mjs` — the three that guard how the flock flies,
   whether it jams, and whether any of this works outside Chromium — running only when someone
   remembered. They protect the least screenshot-visible behaviour on the site, and most of

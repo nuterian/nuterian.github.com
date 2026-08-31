@@ -86,20 +86,28 @@ jobs:
         working-directory: tools
       - name: WebKit and Firefox
         working-directory: tools
-        # WebKit on this runner occasionally dies mid-run — "Target page, context
-        # or browser has been closed", which is a browser PROCESS death, not a
-        # failed assertion. Seen once and green on a re-run with no code change.
+        # This job is flaky on the runner in more than one way, and none of them
+        # have been the site: WebKit has died mid-run ("Target page, context or
+        # browser has been closed") and a click on an archive row has timed out
+        # after resolving and scrolling to it. Both went green on a re-run of the
+        # very same commit, one of them on a push that changed no site code at all.
         #
-        # So: one retry, and only for that. A gate that retries until it passes
-        # stops being believed, so this refuses to retry anything else — an axe
-        # violation, a broken sheet, a dead flock all fail on the first run, at
-        # once, as they should. Only the crash signature buys a second opinion,
-        # and only one: if the browser dies twice, that is the news.
+        # So the rule is not a list of crash strings — the first version was, and
+        # the second flake walked straight past it. It is the distinction that
+        # actually matters: engines.mjs prints ✗ when it has a FINDING about the
+        # site. A run that reported one is never retried, however it ended. A run
+        # that fell over without reporting anything gets one more go, because that
+        # is the environment failing, not the page. If it falls over twice, the
+        # job fails — and if the site is genuinely broken, the ✗ arrives on the
+        # first run and stops there.
         run: |
           set +e
           out=$(node engines.mjs http://localhost:4174 2>&1); code=$?
           echo "$out"
           [ $code -eq 0 ] && exit 0
-          echo "$out" | grep -q "has been closed" || exit $code
-          echo "::warning::WebKit died mid-run (not an assertion). Retrying once."
+          if echo "$out" | grep -q '✗'; then
+            echo "::error::engines reported a finding — not retrying."
+            exit $code
+          fi
+          echo "::warning::engines fell over without reporting a finding. Retrying once."
           node engines.mjs http://localhost:4174
