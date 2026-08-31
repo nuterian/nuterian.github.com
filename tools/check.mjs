@@ -142,6 +142,30 @@ console.log('\nbehaviours');
     await uctx.close();
   }
 
+  // Where the mark rests must not depend on how you got there. Scrolled SMOOTHLY
+  // down and back — a jump never showed this — the placement hysteresis used to
+  // hold the mark wherever the moving goal had dragged it, 136 px off, and
+  // permanently. Real wheel events, because that is the thing that broke.
+  {
+    const rctx = await browser.newContext({ viewport: { width: 1600, height: 1000 }, serviceWorkers: 'block' });
+    const rpage = await rctx.newPage();
+    await rpage.goto(BASE + '/?seed=7');
+    await rpage.waitForFunction(() => window.flock?.snapshot);
+    const where = async () => (await rpage.evaluate(() => window.flock.snapshot())).homeBox;
+    await rpage.waitForTimeout(9000);
+    const before = await where();
+    for (let i = 0; i < 30; i++) { await rpage.mouse.wheel(0, 45); await rpage.waitForTimeout(25); }
+    await rpage.waitForTimeout(2500);
+    for (let i = 0; i < 30; i++) { await rpage.mouse.wheel(0, -45); await rpage.waitForTimeout(25); }
+    await rpage.waitForTimeout(6000);
+    const after = await where();
+    const dy = Math.abs(after.y - before.y), dx = Math.abs(after.x - before.x);
+    (dx < 12 && dy < 12)
+      ? ok(`mark returns to where it started after a smooth scroll (${dx.toFixed(0)}px, ${dy.toFixed(0)}px)`)
+      : fail(`mark rests ${dx.toFixed(0)}px/${dy.toFixed(0)}px from where it began — the placement is path-dependent`);
+    await rctx.close();
+  }
+
   // The name and the links are the page's whole job on first sight, so they are
   // above the fold at EVERY viewport, and the hero is never taller than the
   // screen it is meant to be exactly as tall as. Extremes included, because the

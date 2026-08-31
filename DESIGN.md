@@ -53,7 +53,8 @@ fallback. The main thread only sends small messages (pointer, where home is).
   a placement solver (`_placeHome`, run once a step — it's a coarse 7×6 grid
   plus a few refinement rings against the content rectangles, microseconds) scores
   candidate positions by overlap with content and distance from the viewport's centre, with
-  hysteresis so a near-tie never makes it hop. The box then *glides* to the winning spot
+  hysteresis so a near-tie never makes it hop — while the view is *moving*; see **Where it
+  rests is not where you came from**, below. The box then *glides* to the winning spot
   (eased, capped at 260 px/s — a deliberate relocation, never a snap), and every bird
   simply chases its point in a home that occasionally moves. Scroll to the archive, where
   the rows occupy the left, and the mark reforms in the open space on the right, same
@@ -166,6 +167,20 @@ fallback. The main thread only sends small messages (pointer, where home is).
   phone keeps the size and halves the *grid*: `MARK_THIN` (main.js) takes a checkerboard of
   the sampled points, the pitch grows 1.4×, and 120 birds fill every point that remains
   instead of two-thirds of 208 — the strokes separate again.
+- **Where it rests is not where you came from.** The hysteresis above is right while the view
+  is moving — it is what stops the mark hopping between near-ties on every scrolled frame —
+  and wrong the moment it stops, because it made the resting place **path-dependent**.
+  Scrolled smoothly down to the archive and smoothly back, the goal moved continuously under
+  the box, and at scroll 0 the spot it had been dragged to still scored close enough to keep.
+  So it kept it: measured, **136 px above** where the very same page puts the mark on load,
+  and permanently — twelve seconds later it had not moved. A jump-scroll never reproduced it,
+  which is how it survived this long; only a real wheel does, because only a real wheel drags
+  the goal through every position in between. Once the inputs have held still for
+  `PLACE_SETTLE` (0.7 s) the solver therefore gets **one more pass with the hysteresis off**,
+  and the mark glides to the placement the page actually implies. `_settled` then latches, so
+  nothing re-solves until something genuinely changes — sampled every 5 s for a minute at
+  rest, the box does not move by a pixel. `check.mjs` drives real wheel events down and back
+  and fails if the mark comes to rest more than 12 px from where it started.
 - **The mark grows with the room it has, and the SPACING is what grows.** It used to be a
   fraction of the width under a flat 620 px cap, which bound above about 1476 px — so a
   2560-wide desktop wore exactly the same mark as a 1440 one, and read as a small huddle

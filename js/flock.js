@@ -75,6 +75,8 @@ const FIT_STEPS = [1, 0.8, 0.64];      // a step or two, never continuous
 const MARK_M = 34;                     // px of breathing room around the mark box
 const FIT_SHRINK = 0.04, FIT_GROW = 0.008;  // shrink over, grow under — two, so it can't breathe
 const FIT_EVERY = 0.3, FIT_DWELL = 1.1;     // s: re-decide rate, and dwell after a step
+const PLACE_SETTLE = 0.7;                   // s the view must hold still before the
+                                            // placement is re-decided without hysteresis
 const FIT_GIVEUP = 0.18, FIT_RETURN = 0.06; // even the smallest step stands on words: no mark
                                             // at all, back only once it would be clearly clear
 const PERCH_R = 32;                    // px — a perched bird's seat: clear of the cursor's
@@ -227,6 +229,8 @@ export class Flock {
     this.homeOut = false;   // no placement exists at any size — the mark stands down
     this._fitAt = 0;        // time of the next fit decision
     this._solved = null;    // the inputs the current _homeGoal was solved from
+    this._settleAt = 0;     // when the view has held still long enough to re-decide…
+    this._settled = true;   // …and whether that hysteresis-free solve has happened
     this._dv = { x: 0, y: 0 }; // desired-velocity scratch, reused per bird
     this.tempo = 1;         // global speed multiplier (dims when a sheet is open)
     this.setCount(opts.count || 120);
@@ -469,15 +473,31 @@ export class Flock {
     // The goal is a pure function of these inputs, so a step where none moved
     // is a step where the answer is already known — the grid search runs only
     // when something did (idle: never; scrolling: once per scrolled frame).
+    //
+    // …with one exception, and it is the whole reason `_settled` exists. The
+    // hysteresis in _solveHome keeps the current spot whenever it is close
+    // enough, which is right while the view is MOVING — it is what stops the
+    // mark hopping between near-ties on every scrolled frame. But it also made
+    // the resting place path-dependent: scrolled smoothly down to the archive
+    // and smoothly back, the goal moved continuously under the box, and at
+    // scroll 0 the spot it had been dragged to was "close enough" to keep, so
+    // it stayed. Measured, 136 px above where the same page puts it on load,
+    // and permanently — a jump-scroll never showed it, only a real one. So once
+    // the inputs have held still for a moment, the solver gets one more pass
+    // with the hysteresis off, and the mark glides to the place the page
+    // actually implies. Where you scrolled from stops being part of the answer.
+    const due = !this._settled && this.time >= this._settleAt;
     const s = this._solved;
-    if (s && s.f === f && s.scroll === this.scroll && s.w === this.w && s.h === this.h
+    if (!due && s && s.f === f && s.scroll === this.scroll && s.w === this.w && s.h === this.h
           && s.obs === this.obstacles && s.lure === this.homeLure && s.req === req && this._homeGoal) {
       if (!this.homeBox) this.homeBox = { ...this._homeGoal };
       return;
     }
+    if (!due) { this._settleAt = this.time + PLACE_SETTLE; this._settled = false; }
+    else this._settled = true;
     this._solved = { f, scroll: this.scroll, w: this.w, h: this.h, obs: this.obstacles, lure: this.homeLure, req };
     const S = f === 1 ? req : { w: req.w * f, h: req.h * f };
-    const { cx, cy } = this._solveHome(S);
+    const { cx, cy } = this._solveHome(S, due);
     this._homeGoal = { x: cx - S.w / 2, y: cy - S.h / 2, w: S.w, h: S.h };
     if (!this.homeBox) this.homeBox = { ...this._homeGoal };
   }
