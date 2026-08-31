@@ -66,6 +66,12 @@ let hue = params.has('hue') ? +params.get('hue') : hueAt(clock());
 let light; // the hour's light, kept for window.flock.light (set by pushStyle)
 function applyHue() { root.style.setProperty('--hue', hue.toFixed(1)); pushStyle(); }
 applyHue();
+// …and only now may the hue animate. The transition exists for the drift from
+// one hour to the next, a few degrees at a time; applied to the FIRST hue it
+// animated the whole way from the stylesheet's static default, straight through
+// hues the palette does not contain (style.css, .hue-live). Two frames, because
+// the class must not land in the same style recalculation as the value.
+requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('hue-live')));
 setInterval(() => {
   if (pinnedHour !== null) return;
   if (!params.has('hue')) hue = hueAt(clock());
@@ -186,11 +192,11 @@ async function startMainThread() {
   const { Runner } = await import('./flock.js');
   const runner = mainRunner = new Runner(canvas);
   runner.onstats = s => { stats = s; };
+  runner.ondraw = live;
   post = m => runner.handle(m);
   post(initMessage());   // always first: everything else addresses the flock it makes
   pushStyle();
   flush();
-  live();
 }
 
 function startWorker() {
@@ -201,6 +207,7 @@ function startWorker() {
     worker.postMessage({ type: 'canvas', canvas: off }, [off]);
     worker.onmessage = ({ data }) => {
       if (data.type === 'stats') stats = data;
+      else if (data.type === 'drew') live();
       else if (data.type === 'snapshot') snapshotResolve?.(data);
     };
     worker.onerror = (e) => { // e.g. module workers unsupported: start over on a fresh canvas
@@ -217,14 +224,28 @@ function startWorker() {
     return true;
   } catch { return false; }
 }
-// The canvas is live: only now may the no-JS still stand down (see style.css).
-// Anything that throws or fails to load before this leaves the still on screen,
-// which is the whole point — the fallback outlives a broken main.js. The
-// main-thread path says it later, from inside startMainThread, because there it
-// has an import to wait for and a dead flock must not hide a live still.
-const live = () => root.classList.add('flock-on');
-if (startWorker()) live();
-else startMainThread().catch(e => console.warn('flock: could not load the simulation —', e.message));
+// The still stands down only when there are actually birds on the canvas — not
+// when a worker has been constructed, which is what this used to wait for. The
+// two are hundreds of milliseconds apart (the worker still has to fetch flock.js,
+// compile it, init and reach its first frame), and in that gap the composed mark
+// had been taken away and nothing had replaced it: measured on a throttled load,
+// a formed mark at 700 ms, an EMPTY SKY at 1400, birds at 2200. So the flock
+// says when it has drawn (flock.js: Runner.ondraw) and the still leaves then,
+// fading rather than cutting, so the mark dissolves into the flock that is
+// scattering in behind it. A flock that never draws never fires this, which is
+// exactly right: the fallback outlives anything broken above it.
+function live() {
+  if (root.classList.contains('flock-on')) return;
+  root.classList.add('flock-on');
+  const still = $('.still');
+  if (!still) return;
+  // Hidden once faded, never removed: the same node is the letterhead the print
+  // stylesheet uses, and a page nobody can print is not an improvement.
+  const done = () => still.classList.add('done');
+  still.addEventListener('transitionend', done, { once: true });
+  setTimeout(done, 1200);                     // …and if the fade never runs at all
+}
+if (!startWorker()) startMainThread().catch(e => console.warn('flock: could not load the simulation —', e.message));
 
 // Keep the canvas the size of the viewport.
 let resizeRaf = 0;

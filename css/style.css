@@ -89,8 +89,16 @@
    * Naming them is what keeps a dozen controls settling on the same rhythm. */
   --t-nudge: .45s var(--ease-out);
   --t-tint: .3s var(--ease-out);
-  transition: --hue 2s linear;
 }
+/* The hue eases between hours — but NOT into the first one. The value above is
+ * a static default (the 2013 yellow) and the clock's real answer can be most of
+ * the wheel away from it: measured at 3am, the page spent 2.2 s travelling 254°
+ * from gold through green and cyan to rose, because a transition on a number
+ * interpolates the number, not the shorter way round a wheel. Every visit
+ * opened by sweeping past every hue this palette rejects. So the transition is
+ * switched on only once the first real hue is in place (main.js, one frame
+ * later): arriving in a colour, rather than tuning into it. */
+:root.hue-live { transition: --hue 2s linear; }
 /* The manual theme switch. Nothing to restate — the scheme is the palette.
  * Except --shot-filter, which is the one token light-dark() can't carry: it
  * isn't a colour, `filter` wants a keyword, and CSS has no
@@ -226,7 +234,16 @@ img, svg { display: block; max-width: 100%; height: auto; }
  * the fallback hidden and the canvas never started: an empty sky, no birds
  * either way. Gate it on the flock, and a broken main.js degrades to the
  * still instead of to nothing. */
-.flock-on .still { display: none; }
+/* It fades rather than cuts, and main.js removes the node once it has. A hard
+ * swap put a composed mark on screen and replaced it, in one frame, with a
+ * flock that had just been scattered; fading, the mark dissolves into the birds
+ * arriving behind it. Opacity only — a compositor property, on a layer that is
+ * about to stop existing. */
+.still { transition: opacity .55s var(--ease-out); }
+.flock-on .still { opacity: 0; }
+/* Faded out, it stops being painted — but it is NOT removed, on screen or from
+ * the DOM: it is also the letterhead the print stylesheet uses. */
+.still.done { visibility: hidden; }
 .still polyline { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.25; }
 
 /* --- The wash: sunlight on the page, moonlight after dark ---------------- */
@@ -553,9 +570,11 @@ html:not(.js) .site-footer .theme { display: none; }
    * It is a whole 1560×1020 frame of sky with the birds only in the middle, so
    * the empty air is pulled back off the page rather than printed as a gap —
    * the alternative is scaling the frame until the mark is a stamp. */
-  .flock-on .still, .still {
-    display: block; position: static;
-    width: 100%; height: auto; margin: -16mm 0 -38mm; color: var(--fg);
+  /* `transition: none` matters: on screen this node fades out, and print must
+   * not photograph it mid-fade — measured at 0.92 and falling. */
+  .flock-on .still, .still, .still.done {
+    display: block; position: static; opacity: 1; visibility: visible;
+    transition: none; width: 100%; height: auto; margin: -16mm 0 -38mm; color: var(--fg);
   }
   /* On screen the hero is a viewport tall and recedes as you scroll; on paper it
    * is just the top of the page, and must not print half-faded because of where

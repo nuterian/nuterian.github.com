@@ -11,6 +11,7 @@ self.onmessage = ({ data: m }) => {
   if (m.type === 'canvas') {
     runner = new Runner(m.canvas);
     runner.onstats = (s) => self.postMessage({ type: 'stats', ...s });
+    runner.ondraw = () => self.postMessage({ type: 'drew' });
     runner.onsnapshot = (s) => self.postMessage({ type: 'snapshot', ...s });
     return;
   }

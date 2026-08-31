@@ -1246,5 +1246,8 @@ export class Runner {
   draw() {
     this.flock.geometry();
     this.painter.draw(this.flock, { ...this.style, w: this.w, h: this.h });
+    // There are birds on the canvas now. The page waits for this before taking
+    // the no-JS still away — see main.js. Once, and then never again.
+    if (!this._drew) { this._drew = true; this.ondraw?.(); }
   }
 }
