@@ -1,8 +1,16 @@
+# The gates. check.mjs was the only one that ran here, which left the three that
+# guard the flock's own behaviour — how it flies, whether it jams, and whether it
+# works in a browser that is not Chromium — running only when someone remembered.
+# Those protect the least screenshot-visible things on the site, and DESIGN.md is
+# largely a catalogue of them regressing. Three jobs rather than one so a slow
+# WebKit/Firefox download never delays the answer from the fast ones.
 name: check
 on:
   push:
   pull_request:
+
 jobs:
+  # axe, Lighthouse, the budget, reduced motion, no-JS, the pinned behaviours, offline.
   check:
     runs-on: ubuntu-latest
     steps:
@@ -19,7 +27,7 @@ jobs:
       - name: Serve (gzip + cache headers, like GitHub Pages)
         run: (node serve.mjs 4174 &) && sleep 1
         working-directory: tools
-      - name: axe · Lighthouse · budget · motion · no-js
+      - name: axe · Lighthouse · budget · motion · no-js · behaviours · offline
         run: node check.mjs http://localhost:4174
         working-directory: tools
       - uses: actions/upload-artifact@v5
@@ -27,3 +35,55 @@ jobs:
         with:
           name: screenshots
           path: tools/out
+
+  # Does it still fly like a bird, and does it still not pile up in corners?
+  # Neither is visible in a screenshot, which is exactly why they are gated.
+  flock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/package-lock.json
+      - run: npm ci
+        working-directory: tools
+      - run: npx playwright install --with-deps chromium
+        working-directory: tools
+      - name: Serve
+        run: (node serve.mjs 4174 &) && sleep 1
+        working-directory: tools
+      - name: flight · turn rate, one span, the beat, frame pacing
+        run: node flight.mjs http://localhost:4174
+        working-directory: tools
+      - name: crowd · jams, standing lines, edge bands
+        run: node crowd.mjs
+        working-directory: tools
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: flock
+          path: tools/out
+
+  # The same site in WebKit and Firefox. Its own job: these two take far longer
+  # to install than they do to run, and nothing else should wait on that.
+  engines:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/package-lock.json
+      - run: npm ci
+        working-directory: tools
+      - run: npx playwright install --with-deps webkit firefox
+        working-directory: tools
+      - name: Serve
+        run: (node serve.mjs 4174 &) && sleep 1
+        working-directory: tools
+      - name: WebKit and Firefox
+        run: node engines.mjs http://localhost:4174
+        working-directory: tools

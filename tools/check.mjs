@@ -142,6 +142,27 @@ console.log('\nbehaviours');
     await uctx.close();
   }
 
+  // The home box's size is the goal's, always. It used to be copied once and
+  // then left behind when the fit ladder stepped — stale by 272 px — which is
+  // read by the roam ring's centre and radius, so the flock circled a mark that
+  // was no longer the size it thought. Forced here rather than waited for.
+  {
+    const bctx = await browser.newContext({ viewport: { width: 1000, height: 700 }, serviceWorkers: 'block' });
+    const bpage = await bctx.newPage();
+    await bpage.goto(BASE + '/?seed=7&still&mainthread');
+    await bpage.waitForFunction(() => window.flock?._runner?.flock?.homeBox);
+    const r = await bpage.evaluate(() => {
+      const f = window.flock._runner.flock;
+      f.setHomeSize({ w: 900, h: 900 / 1.557 });          // too big for the room: the ladder must step
+      for (let i = 0; i < 400; i++) f._step(1 / 60);
+      return { fit: f.homeFit, want: Math.round(f.home.size.w * f.homeFit), box: Math.round(f.homeBox.w) };
+    });
+    (r.fit < 1 && r.box === r.want)
+      ? ok(`home box tracks the fit (stepped to ${r.fit}, box ${r.box}px)`)
+      : fail(`home box is ${r.box}px but the mark is ${r.want}px at fit ${r.fit} — the ring circles the wrong size`);
+    await bctx.close();
+  }
+
   // Where the mark rests must not depend on how you got there. Scrolled SMOOTHLY
   // down and back — a jump never showed this — the placement hysteresis used to
   // hold the mark wherever the moving goal had dragged it, 136 px off, and

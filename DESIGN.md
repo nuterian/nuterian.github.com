@@ -167,6 +167,17 @@ fallback. The main thread only sends small messages (pointer, where home is).
   phone keeps the size and halves the *grid*: `MARK_THIN` (main.js) takes a checkerboard of
   the sampled points, the pitch grows 1.4×, and 120 birds fill every point that remains
   instead of two-thirds of 208 — the strokes separate again.
+- **The box borrows its size; it does not own one.** `homeBox` is the animated rectangle the
+  birds actually aim at, and its `w`/`h` were copied once at creation and then never updated
+  when the fit ladder stepped — measured **stale by 272 px**. Nothing about the mark itself
+  looked wrong, because the bird targets come from `home.size × homeFit`; what read the stale
+  box was the **roam ring**, whose centre (`hb.x + hb.w / 2`) and radius (`max(hb.w, hb.h)`)
+  both come from it. So whenever the mark condensed, the campus loop circled a mark of the
+  wrong size, ~136 px off-centre from the one on screen — and every `snapshot()` reported a
+  size the page was not using, which is its own trap for anyone debugging with it. The
+  position is animated; the size never was and was never the box's to keep, so it is now
+  assigned from the goal every step. One source, and they cannot diverge. Pinned in
+  `check.mjs` by forcing the ladder to step and asserting the box followed.
 - **Where it rests is not where you came from.** The hysteresis above is right while the view
   is moving — it is what stops the mark hopping between near-ties on every scrolled frame —
   and wrong the moment it stops, because it made the resting place **path-dependent**.
@@ -888,6 +899,12 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
     other. A simulation that fails to load must not hide the still that replaces it.
 - Everything is behind feature detection: no Worker/OffscreenCanvas → main thread;
   no View Transitions → plain; no `<dialog>` → `:target`; no script → still.
+- **All four gates run in CI**, in three jobs. `check.mjs` was the only one that did, which
+  left `flight.mjs`, `crowd.mjs` and `engines.mjs` — the three that guard how the flock flies,
+  whether it jams, and whether any of this works outside Chromium — running only when someone
+  remembered. They protect the least screenshot-visible behaviour on the site, and most of
+  this file is a catalogue of exactly those things regressing. WebKit and Firefox get their
+  own job because they take far longer to download than to run, and nothing should wait on it.
 - **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; Lighthouse 100/100/100/100 on
   desktop and mobile; first load < 100 KB gzip (currently 80.5 KB); no console errors;
   reduced motion is actually still; no-JS still and `:target` work; the behaviours that

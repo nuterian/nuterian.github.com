@@ -639,6 +639,13 @@ export class Flock {
       this._placeHome();
       const g = this._homeGoal, b = this.homeBox;
       if (g && b) {
+        // The box's POSITION is animated; its size is not, and is never its own
+        // to hold. It was copied once at creation and then left behind whenever
+        // the fit ladder stepped — measured stale by 272 px, which quietly put
+        // the roam ring's centre ~136 px off the mark it is supposed to circle
+        // (ccx and markR below both read it) and made every snapshot lie about
+        // the size. The goal is the one source; the box only ever borrows it.
+        b.w = g.w; b.h = g.h;
         const gdx = g.x - b.x, gdy = g.y - b.y, gd = Math.sqrt(gdx * gdx + gdy * gdy);
         if (gd > 0.3) {
           const gs = Math.min(gd * 2.4, 260); // eases in, capped — a deliberate glide, not a snap
