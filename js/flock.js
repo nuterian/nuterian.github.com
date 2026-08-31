@@ -65,6 +65,14 @@
 
 export const STEP = 1 / 60;            // fixed simulation step
 const MAX_STEPS = 4;                   // per frame, before we drop time instead
+const CATCHUP_MAX = 600;               // steps (10 s) the flock may live through while a
+                                       // tab was hidden. A bound on the WORK, not on how
+                                       // long you may be away: in the worker this is free,
+                                       // but on the main-thread fallback it is one task,
+                                       // and 1200 measured 78 ms — a long task by anyone's
+                                       // definition. 600 is ~39 ms, the same number of
+                                       // steps `settle()` already runs, and six seconds of
+                                       // drift was visible before the cap ever came near.
 const TAU = Math.PI * 2, PI = Math.PI, DEG = Math.PI / 180;
 
 // Condensing the mark when the viewport has no rail for it (DESIGN.md). How big
@@ -1242,6 +1250,18 @@ export class Runner {
       case 'count': f?.setCount(m.value); break;
       case 'params': if (f) Object.assign(f.p, m.params); break;
       case 'season': f?.season(m.season); break;
+      // Time you were not watching. The loop stops when the tab hides, so coming
+      // back used to resume the exact frozen frame you left — the one thing a
+      // flock should never do. The page says how long you were gone and the
+      // simulation is run forward by it, capped: birds have wandered, a couple
+      // are out on laps, the mark may have moved. Nothing is drawn until the
+      // catch-up finishes, so it costs one frame, not a visible fast-forward.
+      case 'catchup': {
+        if (!f || this.still) break;
+        const n = Math.min(Math.round((m.seconds || 0) / STEP), CATCHUP_MAX);
+        for (let i = 0; i < n; i++) f._step(STEP);
+        break;
+      }
       case 'visible': m.value ? this.start() : this.stop(); break;
       case 'step': if (this.still && f) { f.advance(m.dt || STEP); this.draw(); } break;
     }

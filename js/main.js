@@ -260,7 +260,20 @@ addEventListener('resize', () => {
     sendObstacles();
   });
 }, { passive: true });
-document.addEventListener('visibilitychange', () => post({ type: 'visible', value: !document.hidden }));
+// Come back to a flock that carried on without you. The loop stops while the tab
+// is hidden — it must, it is someone else's battery — so what returns is the
+// frame you left, frozen mid-air. Instead the time away is measured and handed
+// over, and the simulation lives through it in one go before the first frame is
+// drawn. It reads as "it was still going", which is the point; nobody would call
+// it a feature.
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = performance.now(); post({ type: 'visible', value: false }); return; }
+  const away = hiddenAt ? (performance.now() - hiddenAt) / 1000 : 0;
+  hiddenAt = 0;
+  if (away > 1) post({ type: 'catchup', seconds: away });
+  post({ type: 'visible', value: true });
+});
 // The birds' sky is fixed and the page scrolls through it — one tiny message
 // per scrolled frame, and the worker does the subtraction so we read no layout
 // here. Except on a phone, where style.css anchors the canvas to the document

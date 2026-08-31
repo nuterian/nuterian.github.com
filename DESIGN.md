@@ -30,6 +30,16 @@ fallback. The main thread only sends small messages (pointer, where home is).
   no two birds ever trace the same loop), before drifting home. A disrupted flock takes
   real time to reassemble, staggered bird by bird, and a settled flock always has a few
   birds out on a lap — the idle state is never 100 % of the flock at once. PERCH: below.
+- **Time you were not watching still happened.** The loop stops when the tab hides — it must,
+  it is someone else's battery — so coming back resumed the exact frozen frame you left, which
+  is the one thing a flock should never do. The page measures how long you were gone and the
+  simulation is run forward by it before a single frame is drawn: birds have wandered, a
+  couple more are out on laps, the mark may have moved. Six seconds away moved one bird 76 px
+  and put two more on the wing. Capped at **600 steps (10 s)** — a bound on the WORK, not on
+  how long you may be away: in the worker it is free, but on the main-thread fallback it is
+  one task, and 1200 steps measured 78 ms, a long task by any definition. 600 is ~28 ms, and
+  it is the same number `settle()` has always run. Skipped entirely under `?still` and reduced
+  motion, where a still frame is the whole point.
 - **A pointer that stops moving stops being a predator.** Until now *you* could only ever
   be a threat: you are the fourth rule, and every branch of it pushed birds away. Leave the
   mouse alone for 45 seconds and the nearest bird — never one already fleeing — flies over
@@ -866,6 +876,28 @@ the constraint that set every other number in the block.
   point at things you cannot press.
 - **The archive prints as the list it is**, not as nine full-length screenshots. Unless a
   sheet is actually open, in which case that is the thing you asked to print.
+
+### The 404 spells what you typed
+
+It assembled the characters `404` — a number nobody types — while the address bar held the
+word the person actually asked for. `textPoints()` samples any string, so it samples theirs:
+mistype `/forge` as `/froge` and the flock comes together into your own typo. It costs nothing
+to everyone who never lands there, which is the shape of every reward on this site, and the
+`<h1>` still says "Not found" in words, so nothing is ever carried only by birds.
+
+- **What it will spell is deliberately narrow**: lowercase a–z, 0–9 and hyphens, off the last
+  path segment, extension dropped, hyphens read as spaces, 14 characters at most; anything
+  else falls back to `404`. Not for safety — it is rasterised to an offscreen canvas as a
+  point cloud and never touches the DOM — but because a long string samples too small to read.
+- **More letters, more birds.** The legibility budget is birds *per glyph*: `jm` is 2 glyphs
+  to 140, and `404` here was 3 to 150 — about fifty each. Held at 150, a seven-letter word got
+  twenty-one and read as a smear. Bird count is the cheap axis (above), so the flock is sized
+  to the word rather than the word to the flock: 48 per glyph, capped at 420.
+- **And the sampling pitch follows the flock**, which was wrong here long before the word was.
+  A fixed 6 px pitch sampled `404` into ~340 points for 150 birds, so two points in five stood
+  empty and the glyphs never closed. The grid is now coarsened until the cloud is something
+  that many birds can hold — the same ~1.5 points per bird the home page reads at, and the
+  same reasoning as the phone halving the mark's grid rather than shrinking the mark.
 
 ## Accessibility
 

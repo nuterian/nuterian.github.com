@@ -22,14 +22,56 @@ const post = m => runner.handle(m);
 // The world is the canvas's own box (style.css sizes it), not the viewport:
 // a full-viewport canvas is a layer the compositor cannot afford per frame.
 const world = () => { const r = canvas.getBoundingClientRect(); return { w: Math.max(1, Math.round(r.width)), h: Math.max(1, Math.round(r.height)) }; };
-post({ type: 'init', dpr, ...world(), count: coarse ? 120 : 150, still: reduce });
+// The flock spells whatever you actually typed. It used to assemble "404" — a
+// number nobody types — while the address bar held the word the person really
+// asked for. textPoints() samples any string, so it may as well sample theirs:
+// mistype /forge as /froge and 150 birds come together into your own typo. It
+// costs nothing to everyone who never lands here, which is the whole shape of
+// this site's rewards. The <h1> still says "Not found" in words, so nothing is
+// ever conveyed only by birds.
+//
+// What it will spell is deliberately narrow. Lowercase a–z, 0–9 and hyphens off
+// the LAST path segment, its extension dropped, hyphens read as spaces, and at
+// most 14 characters — anything else falls back to 404. Not for safety (this is
+// rasterised to an offscreen canvas as a point cloud and never touches the DOM)
+// but because the flock can only suggest a shape: a long string samples too
+// small to read, and a word nobody chose is not a joke worth telling.
+const asked = (() => {
+  const seg = decodeURIComponent(location.pathname).split('/').filter(Boolean).pop() || '';
+  const word = seg.replace(/\.[a-z0-9]+$/i, '').toLowerCase().replace(/-+/g, ' ').trim();
+  return /^[a-z0-9 ]{1,14}$/.test(word) ? word : '404';
+})();
+// The type shrinks to fit the 600 px sampling canvas, so a long word is sampled
+// at a smaller size rather than off the edge of it.
+//
+// Then the PITCH is chosen to suit the flock, which is the part that was wrong
+// here long before the word was: a fixed 6 px pitch sampled "404" into ~340
+// points for 150 birds to fill, so two of every five points stood empty and the
+// glyphs never closed up. A word makes it worse — more letters, more ink, more
+// points, same birds. So the grid is coarsened until the cloud is something this
+// many birds can actually hold: the mark on the home page reads at ~1.5 points
+// per bird, and that ratio is the target here too. Same rule the phone uses when
+// it halves the mark's grid rather than shrinking the mark.
+// More letters, more birds. A word is only legible if each glyph gets enough of
+// them: "jm" on the home page is 2 glyphs to 140 birds, and "404" here was 3 to
+// 150 — about fifty each. Held at 150, a seven-letter word got twenty-one per
+// letter and read as a smear. Birds are the cheap axis (DESIGN.md: count is free,
+// canvas AREA is what costs, and 600 of them hold 60fps on the same layer), so
+// the flock is sized to the word instead of the word to the flock.
+const glyphs = asked.replace(/ /g, '').length;
+const birds = Math.min(420, Math.max(coarse ? 120 : 150, glyphs * 48));
+post({ type: 'init', dpr, ...world(), count: birds, still: reduce });
 post(style());
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => post(style()));
 
-// Sample "404" into points: that's home here. Only the SIZE is decided —
-// where it sits is the worker's own placement solver (no obstacles on this
-// page, so it just settles near the viewport centre, same as before).
-const { points, aspect } = textPoints(document.createElement('canvas').getContext('2d'), '404', '600 150px system-ui, sans-serif', 6);
+const canvas404 = document.createElement('canvas').getContext('2d');
+const size = Math.min(150, Math.round(1000 / Math.max(3, asked.length)));
+const target = birds * 1.5;
+let points, aspect;
+for (let pitch = 5; pitch <= 24; pitch++) {
+  ({ points, aspect } = textPoints(canvas404, asked, `600 ${size}px system-ui, sans-serif`, pitch));
+  if (points.length / 2 <= target) break;
+}
 function homeSize() {
   const { w, h } = world();
   const bw = Math.min(w * 0.62, h * 0.62 * aspect);
