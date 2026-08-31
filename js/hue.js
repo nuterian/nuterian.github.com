@@ -68,17 +68,36 @@ const LIGHT_KEYS = [ // [hour, azimuth°, elevation, power]
 
 const MOON = 260;   // the dark theme's own background hue — see --bg
 
-export function lightAt(date = new Date(), dark = false, hue = hueAt(date)) {
+// Illuminated fraction of the moon, 0 new to 1 full, from the synodic month
+// alone — no ephemeris, and never more than a few hours out, which is nothing
+// on a 29-day cycle.
+const SYNODIC = 29.530588853, NEW_MOON = Date.UTC(2000, 0, 6, 18, 14);
+export function moonLit(date = new Date()) {
+  const age = ((date - NEW_MOON) / 864e5 % SYNODIC + SYNODIC) % SYNODIC;
+  return (1 - Math.cos(age / SYNODIC * Math.PI * 2)) / 2;
+}
+
+export function lightAt(date = new Date(), dark = false, hue = hueAt(date), moon = moonLit(date)) {
   const h = date.getHours() + date.getMinutes() / 60;
   let i = 0;
   while (i < LIGHT_KEYS.length - 2 && h > LIGHT_KEYS[i + 1][0]) i++;
   const [h0, a0, e0, p0] = LIGHT_KEYS[i], [h1, a1, e1, p1] = LIGHT_KEYS[i + 1];
   const t = Math.min(1, Math.max(0, (h - h0) / (h1 - h0))), s = t * t * (3 - 2 * t);
   const elev = e0 + (e1 - e0) * s, power = p0 + (p1 - p0) * s;
+  // How much of this hour's light is the moon's — read off `power` rather than
+  // off a second set of keys that could fall out of step with the first: every
+  // daylight key is 1 and every lunar one at most 0.5. So it is 0 through the
+  // day, 1 once the sun is down, and continuous across both handovers.
+  const lunar = Math.min(1, Math.max(0, (1 - power) * 2));
   return {
     az: (a0 + (a1 - a0) * s) * Math.PI / 180,
     elev,
-    glint: power * (0.15 + 0.85 * (1 - elev) ** 1.5),  // raking glints, noon flattens
+    moon,
+    // The phase is spent on the GLINT and nowhere else: a crescent is a smaller
+    // specular source, so it flashes off a wing less. It is kept away from `glow`
+    // deliberately — dimming moonlight photometrically is the mistake this file
+    // has made twice (DESIGN.md). A full moon is exactly the old number.
+    glint: power * (0.15 + 0.85 * (1 - elev) ** 1.5) * (1 - lunar * 0.55 * (1 - moon)),
     // The wash is ambient, not raking. BOTH terms COMPRESS rather than
     // multiply — a dim source, or a low one, still lights a page you have
     // adapted to. Elevation used to multiply raw, and its floor fell on the

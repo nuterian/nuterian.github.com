@@ -31,8 +31,8 @@ export const nextTheme = () => {
 // The hour's light, landed in both places at once: the page reads it as
 // custom properties (the wash in style.css), the flock takes the returned
 // style message. Same numbers, one source.
-export function lightStyle(date, hue) {
-  const l = lightAt(date, isDark(), hue);
+export function lightStyle(date, hue, moon) {
+  const l = lightAt(date, isDark(), hue, moon);
   root.style.setProperty('--light-x', (50 + Math.cos(l.az) * 62).toFixed(1) + '%');
   root.style.setProperty('--light-y', (50 + Math.sin(l.az) * 44).toFixed(1) + '%');
   root.style.setProperty('--glow', l.glow.toFixed(3));

@@ -21,7 +21,8 @@
 import { chromium } from 'playwright';
 import sharp from 'sharp';
 import { mkdirSync } from 'node:fs';
-import { Flock, STEP, MARK, MARK_ASPECT } from '../js/flock.js';
+import { Flock, STEP } from '../js/flock.js';
+import { MARK, MARK_ASPECT } from '../js/mark.js';
 
 const BASE = process.argv[2] || 'http://localhost:4174';
 const OUT = new URL('./out/', import.meta.url).pathname;

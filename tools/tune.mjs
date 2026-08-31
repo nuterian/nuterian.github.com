@@ -1,7 +1,8 @@
 // Headless tuning harness: simulate N seconds and rasterise frames.
 // node tune.mjs '{"wCohesion":0.4}' 8 16 25
 import sharp from 'sharp';
-import { Flock, STEP, MARK, MARK_ASPECT } from '../js/flock.js';
+import { Flock, STEP } from '../js/flock.js';
+import { MARK, MARK_ASPECT } from '../js/mark.js';
 const [,, json = '{}', ...times] = process.argv;
 const params = JSON.parse(json);
 const W = 1440, H = 900;

@@ -12,7 +12,13 @@
  * reduced motion → one still frame; no script → the inline SVG still.
  */
 
-import { Runner, MARK, MARK_ASPECT, DEFAULTS } from './flock.js';
+// Note what is NOT imported here: flock.js. On the path almost everyone takes
+// the simulation runs in the worker, and the page downloading a copy it will
+// never execute was the single largest item on this page — 22.7 KB, paid twice,
+// because the worker fetches it too. The page needs the mark (which lives in
+// mark.js, where this now asks for it), and the Runner ONLY if the worker path
+// fails, so that one is fetched at the moment it is needed and not before.
+import { MARK, MARK_ASPECT } from './mark.js';
 import { hueAt } from './hue.js';
 import { setTheme as applyTheme, nextTheme, lightStyle } from './theme.js';
 import { count } from './count.js';
@@ -25,7 +31,12 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const STILL = params.has('still') || reduceMotion.matches;
 const darkMQ = matchMedia('(prefers-color-scheme: dark)');
 
-let post;          // send a message to wherever the flock lives (set in §2)
+// Send a message to wherever the flock lives (§2). Until it lives anywhere,
+// messages wait in line: the worker path replaces this within the same tick,
+// but the main-thread fallback has to load the simulation first.
+const pending = [];
+let post = m => pending.push(m);
+const flush = () => { for (const m of pending.splice(0)) post(m); };
 let inWorker = false;
 let stats = { fps: 0, n: 0 };
 
@@ -44,6 +55,8 @@ let opener = null, current = null; // the row that opened the sheet; the open sl
  * `?hue=` still pins the accent on its own.
  * ------------------------------------------------------------------------- */
 const pinnedHour = params.has('hour') ? +params.get('hour') : null;
+// …and the slower clock: the moon's phase, which the night's glint follows.
+const pinnedMoon = params.has('moon') ? +params.get('moon') : undefined;
 function clock() {
   const d = new Date();
   if (pinnedHour !== null) d.setHours(pinnedHour | 0, (pinnedHour % 1) * 60, 0, 0);
@@ -109,6 +122,11 @@ function measureWorld() {
   world = { w: Math.max(1, Math.round(r.width)), h: Math.max(1, Math.round(r.height)) };
   return world;
 }
+// Measured NOW, not at init. `homeSize()` is a function of the canvas's width,
+// and on the main-thread path init happens after an await — so a home message
+// composed before then would have carried a mark sized against the placeholder
+// 1×1 world. It did: the landscape gate caught a 0.66 px mark.
+measureWorld();
 // The content walls, in document(+60px bleed) space — sent once per layout; the
 // worker subtracts the live scroll offset, so scrolling reads no layout.
 function sendObstacles() {
@@ -147,7 +165,7 @@ const season = params.get('season') || (month === 11 ? 'snow' : null);
 // lightStyle() runs unconditionally: the page's light must not wait for a
 // flock that may not exist yet — only the posting is optional.
 function pushStyle(extra) {
-  const r = lightStyle(clock(), hue);
+  const r = lightStyle(clock(), hue, pinnedMoon);
   light = r.light;
   post?.({ type: 'style', style: { ...r.style, ...extra } });
 }
@@ -159,13 +177,20 @@ function initMessage() {
 
 let snapshotResolve = null; // dev: window.flock.snapshot() — see tools/crowd.mjs
 let mainRunner = null; // only when the flock runs on the main thread
-function startMainThread() {
+// The fallback, and the only place the page ever loads the simulation itself.
+// It is async because of that, which is why `post` queues: everything below
+// carries on addressing a flock that is still arriving.
+async function startMainThread() {
   inWorker = false;
+  post = m => pending.push(m);   // a dead worker may have been holding this
+  const { Runner } = await import('./flock.js');
   const runner = mainRunner = new Runner(canvas);
   runner.onstats = s => { stats = s; };
   post = m => runner.handle(m);
-  post(initMessage());
+  post(initMessage());   // always first: everything else addresses the flock it makes
   pushStyle();
+  flush();
+  live();
 }
 
 function startWorker() {
@@ -182,26 +207,31 @@ function startWorker() {
       console.warn('flock: worker failed, falling back to main thread —', e.message);
       worker.terminate();
       const fresh = canvas.cloneNode(); canvas.replaceWith(fresh); canvas = fresh;
-      startMainThread();
+      startMainThread().catch(() => {});
     };
     post = m => worker.postMessage(m);
     inWorker = true;
-    post(initMessage());
+    post(initMessage());   // always first: everything else addresses the flock it makes
     pushStyle();
+    flush();
     return true;
   } catch { return false; }
 }
-if (!startWorker()) startMainThread();
 // The canvas is live: only now may the no-JS still stand down (see style.css).
-// Anything that throws above this line leaves the still on screen, which is
-// the whole point — the fallback outlives a broken main.js.
-root.classList.add('flock-on');
+// Anything that throws or fails to load before this leaves the still on screen,
+// which is the whole point — the fallback outlives a broken main.js. The
+// main-thread path says it later, from inside startMainThread, because there it
+// has an import to wait for and a dead flock must not hide a live still.
+const live = () => root.classList.add('flock-on');
+if (startWorker()) live();
+else startMainThread().catch(e => console.warn('flock: could not load the simulation —', e.message));
 
 // Keep the canvas the size of the viewport.
 let resizeRaf = 0;
 addEventListener('resize', () => {
   cancelAnimationFrame(resizeRaf);
   resizeRaf = requestAnimationFrame(() => {
+    perchOff();   // the seat is in canvas coordinates; the canvas just moved
     const { w, h } = measureWorld();
     post({ type: 'resize', dpr: dpr(), w, h });
     post({ type: 'home-size', size: homeSize() });
@@ -261,10 +291,33 @@ addEventListener('pointermove', e => {
     // Repel off over a Making row: birds it just called over should not then be
     // scattered by the very cursor that called them.
     post({ type: 'pointer', x: px - r.left, y: py - r.top, on: !overMaking });
+    perchLater();
   });
 }, { passive: true });
-addEventListener('pointerleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
-document.addEventListener('mouseleave', () => post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }));
+addEventListener('pointerleave', () => { perchOff(); post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }); });
+document.addEventListener('mouseleave', () => { perchOff(); post({ type: 'pointer', on: false, x: -1e4, y: -1e4 }); });
+
+/* Stop moving for long enough and you stop being a predator: one bird comes and
+ * settles beside the cursor until you move (flock.js, PERCH). The gesture is for
+ * someone doing nothing, so nothing here polls — it is one timer that every
+ * movement throws away. Not on touch, not under reduced motion, not mid-sheet.
+ * `?perch=` is the wait in seconds, for the impatient. */
+const PERCH_AFTER = (params.has('perch') ? +params.get('perch') : 45) * 1000;
+let perchTimer = 0, perched = false;
+function perchOff() {
+  clearTimeout(perchTimer); perchTimer = 0;
+  if (perched) { perched = false; post({ type: 'perch', at: null }); }
+}
+function perchNow() {
+  const r = canvas.getBoundingClientRect();
+  perched = true;
+  post({ type: 'perch', at: { x: px - r.left, y: py - r.top } });
+}
+function perchLater() {
+  perchOff();
+  if (STILL || !finePointer.matches || season === 'snow') return;
+  perchTimer = setTimeout(() => { if (!sheet.open && !overMaking) perchNow(); }, PERCH_AFTER);
+}
 
 // Taps gather the flock for a moment. The first tap also asks (once) for tilt.
 let tapStart = null;
@@ -367,6 +420,7 @@ function openSheet(slug, { push = true } = {}) {
   if (push) history.pushState({ slug }, '', `#${slug}`);
   go();
   // The flock dims and slows while you read.
+  perchOff();
   post({ type: 'tempo', value: 0.35 }); pushStyle({ alpha: 0.8 });
   $('#sheet-prev').disabled = slugs.indexOf(slug) === 0;
   $('#sheet-next').disabled = slugs.indexOf(slug) === slugs.length - 1;
@@ -429,11 +483,23 @@ sheet.addEventListener('pointerup', e => {
   const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y; swipe = null;
   if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) step(dx < 0 ? 1 : -1);
 }, { passive: true });
+// j/k walk the rows of both lists. Focus is the whole mechanism: it already
+// draws the ring, takes the nudge, scrolls itself into view and opens on Enter.
+// Inside a sheet the pair does what the arrows do — the same gesture, one level in.
+const walkable = $$('.row');
+function walk(d) {
+  const i = walkable.indexOf(document.activeElement);
+  const next = i < 0 ? (d > 0 ? 0 : walkable.length - 1)
+                     : Math.min(walkable.length - 1, Math.max(0, i + d));
+  walkable[next]?.focus();
+}
 addEventListener('keydown', e => {
-  if (e.target.matches('input, textarea, select')) return;
-  if (sheet.open && e.key === 'ArrowRight') step(1);
-  else if (sheet.open && e.key === 'ArrowLeft') step(-1);
-  else if (!sheet.open && (e.key === 't' || e.key === 'T') && !e.metaKey && !e.ctrlKey && !e.altKey) cycleTheme();
+  if (e.target.matches('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
+  const d = e.key === 'j' ? 1 : e.key === 'k' ? -1 : 0;
+  if (sheet.open && (e.key === 'ArrowRight' || d > 0)) step(1);
+  else if (sheet.open && (e.key === 'ArrowLeft' || d < 0)) step(-1);
+  else if (d) walk(d);
+  else if (!sheet.open && (e.key === 't' || e.key === 'T')) cycleTheme();
 });
 // Deep links and back/forward.
 addEventListener('popstate', () => route(false));
@@ -474,17 +540,20 @@ count();
 
 // Console: one line, and a handle to poke at.
 console.log(
-  `%cflock%c ${TARGET} · rules: separation, alignment, cohesion, you · ${inWorker ? 'worker + OffscreenCanvas' : 'main thread'}${STILL ? ' · still' : ''} (renderer: flock.where)\n%cwindow.flock — { count, fps, params, home, season(), hue, seed } · ?n= ?seed= ?still ?hue= ?hour= ?season=snow · press t`,
+  `%cflock%c ${TARGET} · rules: separation, alignment, cohesion, you · ${inWorker ? 'worker + OffscreenCanvas' : 'main thread'}${STILL ? ' · still' : ''} (renderer: flock.where)\n%cwindow.flock — { count, fps, params, home, season(), perch(), hue, seed } · ?n= ?seed= ?still ?hue= ?hour= ?moon= ?perch= ?season=snow · press t, or j/k`,
   'font-weight:600', '', 'color:gray');
 window.flock = {
   get count() { return stats.n; },
   set count(v) { post({ type: 'count', value: +v }); },
   get fps() { return Math.round(stats.fps); },
-  get params() { return { ...DEFAULTS }; },
+  // The params the flock is actually running, not a copy of the defaults it
+  // started from — they arrive on the same channel as the frame rate.
+  get params() { return stats.p && { ...stats.p }; },
   set params(p) { post({ type: 'params', params: p }); },
   get home() { return homeSize(); },
   set home(on) { on ? sendHome() : post({ type: 'home-off' }); },
   season: s => post({ type: 'season', season: s }),
+  perch: () => { perchOff(); perchNow(); },   // without the 45 s of sitting still
   tempo: v => post({ type: 'tempo', value: v }),
   get seed() { return seed; },
   get hue() { return hue; },

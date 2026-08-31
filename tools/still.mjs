@@ -1,7 +1,8 @@
 // Renders one seeded frame of the flock as inline SVG and writes it into
 // index.html between <!--STILL--> markers. This is what you see with script off.
 import { readFile, writeFile } from 'node:fs/promises';
-import { Flock, STEP, MARK, MARK_ASPECT, shade } from '../js/flock.js';
+import { Flock, STEP, shade } from '../js/flock.js';
+import { MARK, MARK_ASPECT } from '../js/mark.js';
 import { lightAt } from '../js/hue.js';
 
 // The canvas box, matching style.css (#flock: viewport + 60px bleed). Only

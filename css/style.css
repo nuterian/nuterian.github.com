@@ -414,6 +414,10 @@ html:not(.js) .sheet:target {
 .sheet figure { max-width: 960px; margin: 0 auto; }
 .sheet figure + figure { margin-top: 3.25rem; }
 .sheet figcaption { font-family: var(--mono); font-size: .75rem; color: var(--muted); margin-top: 1rem; }
+/* A link inside a line of prose has to be a link before you point at it — the
+ * page's usual reveal-on-hover underline is not enough to tell it from the
+ * caption around it (WCAG 1.4.1, and axe says so). */
+.sheet figcaption a { text-decoration: underline; text-decoration-color: currentColor; }
 /* These are 2013 screenshots: full-bleed white pages. At their own brightness
  * on a 14%-lightness sheet, opening one at night is a flashbulb. A gentle dim
  * takes the glare off without washing the design out — and it stays `none` in
@@ -475,16 +479,35 @@ dialog#sheet .sheet .close { display: none; }
  * because there are THREE states and an icon alone would be a guess. The word
  * is the visible label and the aria-label contains it, so the accessible name
  * and what you can read still agree. */
+/* A target you can hit and a shape you can see are two different requirements,
+ * and this control needs both at different sizes. The box stays 44 px tall, so
+ * the target is what it always was. The PILL is drawn by a pseudo-element sized
+ * to the line of type it sits in — 28 px against the dateline's 20 — because at
+ * 44 it was a button parked in a line of quiet mono text, twice the height of
+ * everything beside it, and read as the loudest thing in the footer. The
+ * remaining 8 px above and below are forgiving slop, not the affordance: the
+ * pill, the icon and the word are all still visible, which is the whole point of
+ * the redesign that gave this control a surface in the first place. */
 .site-footer .theme {
   display: inline-flex; align-items: center; gap: .5rem;
-  min-height: 44px; padding: 0 .9rem 0 .75rem;
+  min-height: 44px; padding: 0 .7rem 0 .6rem;
+  position: relative; z-index: 0;      /* its own stacking context, for the pill */
   font: inherit; color: var(--muted);
+  transition: color var(--t-tint);
+}
+.site-footer .theme::before {
+  content: ''; position: absolute; z-index: -1;
+  left: 0; right: 0; top: 50%; height: 28px; translate: 0 -50%;
   border: 1px solid var(--hair); border-radius: 999px;
-  transition: color var(--t-tint), background-color var(--t-tint), border-color var(--t-tint);
+  transition: background-color var(--t-tint), border-color var(--t-tint);
 }
-.site-footer .theme:hover, .site-footer .theme:focus-visible {
-  color: var(--fg); background: var(--accent-soft); border-color: transparent;
+.site-footer .theme:hover, .site-footer .theme:focus-visible { color: var(--fg); }
+.site-footer .theme:hover::before, .site-footer .theme:focus-visible::before {
+  background: var(--accent-soft); border-color: transparent;
 }
+/* The ring belongs on the shape you can see, not on the box around it. */
+.site-footer .theme:focus-visible { outline: none; }
+.site-footer .theme:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 3px; }
 .theme-icon { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
 .i-auto path, .i-dark path { fill: currentColor; stroke: none; }   /* the lit half, and the moon */
 /* One state at a time; `:root` has no data-theme until you choose one. */
@@ -512,4 +535,48 @@ html:not(.js) .site-footer .theme { display: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
 }
-@media print { #flock, .still, .site-footer .theme, body::before { display: none; } .sheet { display: block; } }
+/* Nobody prints a web page; the person who does gets one that was expecting
+ * them. A calling card, on one sheet (measured, A4 and Letter): the flock's own
+ * still as the letterhead — already in the document, so it costs no download —
+ * the name, the line, the addresses written out because you cannot click paper,
+ * and the work as a list. It prints in the LIGHT palette whatever theme is on
+ * screen, and one declaration says so, because every token is a `light-dark()`
+ * pair and the scheme moves the whole palette. */
+@media print {
+  :root { color-scheme: light; }
+  @page { margin: 16mm; }
+  body { background: none; }
+  body::before, #flock, .skip, .site-footer .theme,
+  .hero-links li:last-child,                     /* an anchor link, on paper */
+  .row .arrow { display: none; }                 /* pointing at nothing you can press */
+  /* The letterhead. `.flock-on` normally hides this in favour of the canvas.
+   * It is a whole 1560×1020 frame of sky with the birds only in the middle, so
+   * the empty air is pulled back off the page rather than printed as a gap —
+   * the alternative is scaling the frame until the mark is a stamp. */
+  .flock-on .still, .still {
+    display: block; position: static;
+    width: 100%; height: auto; margin: -16mm 0 -38mm; color: var(--fg);
+  }
+  /* On screen the hero is a viewport tall and recedes as you scroll; on paper it
+   * is just the top of the page, and must not print half-faded because of where
+   * you happened to be scrolled to. */
+  .hero { min-height: 0; padding: 0; }
+  .hero-text { animation: none; opacity: 1; visibility: visible; transform: none; max-width: none; }
+  .rows .row { animation: none; }
+  .site-footer .arrow { opacity: 1; }
+  .hero-links a[href^='http']::after { content: ' · ' attr(href); }
+  .archive, .site-footer { padding-left: 0; padding-right: 0; }
+  .archive { padding-top: 4mm; padding-bottom: 0; }
+  .archive header { margin-bottom: .5rem; }
+  .hero-links { margin-top: 1rem; }
+  .site-footer { padding: 6mm 0 0; }
+  /* 44 px is a fingertip and there are none here. Paper gets the list at the
+   * density the type wants, which is also what makes it one sheet. */
+  .row { min-height: 0; padding: .34rem 0; break-inside: avoid; }
+  .hero-links a { min-height: 0; line-height: 1.5; padding: 0; }
+  /* The archive prints as the list it is, not as nine full-length screenshots.
+   * Unless one is actually open — then that is the thing you asked to print. */
+  .sheet { display: none; }
+  dialog#sheet[open] .sheet { display: block; }
+  .sheet img { box-shadow: none; filter: none; }
+}

@@ -13,7 +13,7 @@
  *   cohesion    — stay with them
  *   you         — the pointer startles; the content nudges, gently
  *
- * Every bird is in one of three states:
+ * Every bird is in one of four states:
  *   HOME    — sprung to its own point in the 2013 jm mark, hovering, breathing.
  *   STARTLE — the pointer came close and moving: pick a personal escape
  *             heading (roughly away, ±60° of temperament) and fly it out,
@@ -22,6 +22,9 @@
  *             birds roam before they return — one to two full rounds, random
  *             per bird — and even a settled flock sheds the odd restless bird
  *             into a lap, so the idle state is never everyone at once.
+ *   PERCH   — a pointer that has not moved in a long while has stopped being a
+ *             predator: the nearest bird comes and settles beside it, wings
+ *             held, until you move. Set from outside; see setPerch.
  *
  * Where the flock GOES is one question; what a bird does with its body on the
  * way is another, and has its own section (“Flight”, in _step): the heading is
@@ -55,8 +58,10 @@
  * the first commit on this site after the 2013 reset was "Add snow").
  */
 
-import { MARK, MARK_ASPECT } from './mark.js';
-export { MARK, MARK_ASPECT };
+// The mark is deliberately NOT imported here. This module never uses it — the
+// page hands the flock a point cloud through `setHome` — and re-exporting it
+// made every importer of the simulation fetch mark.js too, the worker included.
+// Whoever wants the mark takes it from ./mark.js, which is where it lives.
 
 export const STEP = 1 / 60;            // fixed simulation step
 const MAX_STEPS = 4;                   // per frame, before we drop time instead
@@ -68,6 +73,8 @@ const FIT_SHRINK = 0.04, FIT_GROW = 0.008;  // shrink over, grow under — two, 
 const FIT_EVERY = 0.3, FIT_DWELL = 1.1;     // s: re-decide rate, and dwell after a step
 const FIT_GIVEUP = 0.18, FIT_RETURN = 0.06; // even the smallest step stands on words: no mark
                                             // at all, back only once it would be clearly clear
+const PERCH_R = 32;                    // px — a perched bird's seat: clear of the cursor's
+                                       // own arrow, close enough to read as beside it
 
 // Tunables. These are the "feel" — change with care and with a screenshot.
 export const DEFAULTS = {
@@ -210,6 +217,8 @@ export class Flock {
     this.homeBox = null;    // {x,y,w,h} view space — where it currently sits (animated)
     this._homeGoal = null;  // where the placement solver currently wants it
     this.homeLure = null;   // {x,y} view space — a spot to prefer over the centre
+    this.perch = null;      // {x,y,tx,ty} — a still pointer, and where its bird sits
+    this.perchBird = -1;    // which bird took it, or -1
     this.homeFit = 1;       // placement-driven condense factor — see _chooseFit
     this.homeOut = false;   // no placement exists at any size — the mark stands down
     this._fitAt = 0;        // time of the next fit decision
@@ -254,7 +263,7 @@ export class Flock {
     this.cjy = grow(this.cjy, () => 0);
     this.slow = grow(this.slow, () => 0);  // seconds spent near-stationary (any cause) — generic unstick
     const st = new Uint8Array(n); if (this.st) st.set(this.st.subarray(0, Math.min(old, n)));
-    this.st = st; // 0 home · 1 startled · 2 roaming
+    this.st = st; // 0 home · 1 startled · 2 roaming · 3 perched
     this.fx = new Float32Array(n);
     this.fy = new Float32Array(n);
     this._next = new Int32Array(n);        // spatial-hash chains (reused every step)
@@ -263,6 +272,7 @@ export class Flock {
     this._buck = new Uint8Array(n);        // opacity buckets (canvas 2d painter)
     this._inst = new Float32Array(n * 10); // instance scratch (webgl painter)
     this.n = n;
+    if (this.perchBird >= n) this.perchBird = -1;  // ?n= shrank the flock out from under it
     this._acc = 0;
     if (this.home) this._assign();
   }
@@ -288,6 +298,34 @@ export class Flock {
   attract(x, y, r = 90, k = 1, life = 0.8, id = null) {
     if (id) this.attractors = this.attractors.filter(a => a.id !== id);
     if (k > 0 && life > 0) this.attractors.push({ id, x, y, r, k, until: this.time + life });
+  }
+
+  // The perch. It leaves the ordinary way — startled, like anything else you
+  // surprise. WHEN a pointer counts as still is the page's call, not the flock's.
+  setPerch(at) {
+    const i = this.perchBird;
+    if (i >= 0 && this.st[i] === 3) {
+      const dx = this.x[i] - this.perch.x, dy = this.y[i] - this.perch.y, d = Math.hypot(dx, dy) || 1;
+      this.st[i] = 1; this.stT[i] = 0.45 + this.random() * 0.4;
+      this.escx[i] = dx / d; this.escy[i] = dy / d;
+    }
+    this.perchBird = -1;
+    this.perch = at && this.mode === 'home' ? { x: at.x, y: at.y, tx: at.x, ty: at.y } : null;
+  }
+
+  // Whoever is closest, so the flight over is short — never one already fleeing.
+  // The seat sits on the line it arrives on, so it lands from its own direction.
+  _choosePerch(at) {
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < this.n; i++) {
+      if (this.st[i] === 1) continue;
+      const dx = this.x[i] - at.x, dy = this.y[i] - at.y, d2 = dx * dx + dy * dy;
+      if (d2 < bd) { bd = d2; best = i; }
+    }
+    if (best < 0) return;
+    const dx = this.x[best] - at.x, dy = this.y[best] - at.y, d = Math.sqrt(bd) || 1;
+    at.tx = at.x + dx / d * PERCH_R; at.ty = at.y + dy / d * PERCH_R;
+    this.perchBird = best; this.st[best] = 3;
   }
 
   // Give the flock a home: a point cloud (percent coords) at a fixed size.
@@ -436,6 +474,7 @@ export class Flock {
 
   season(name) { // 'snow' | null
     this.mode = name === 'snow' ? 'snow' : 'home';
+    if (this.mode !== 'home') this.setPerch(null);  // snow has no states to sit in
   }
 
   // The content's field: a single smooth push away from every content
@@ -590,6 +629,9 @@ export class Flock {
     const ringY = Math.max(this.h * 0.28, markR * 0.7 + 70);
     const ptr = this.pointer;
     const ptrMoving = ptr.on && ptr.speed > 2.5;
+    // Somebody has been still long enough to be worth landing next to.
+    const perchPt = this.perch;
+    if (perchPt && this.perchBird < 0) this._choosePerch(perchPt);
 
     for (let i = 0; i < n; i++) {
       const xi = x[i], yi = y[i];
@@ -622,7 +664,8 @@ export class Flock {
         }
       }
       // At home the rules apply softly (the mark holds); on the wing, fully.
-      const jostle = si === 0 && homing ? p.homeJostle : 1;
+      // A perched bird is settled too, or the flock calls it straight back off.
+      const jostle = (si === 0 && homing) || si === 3 ? p.homeJostle : 1;
       if (cnt) {
         ax /= cnt; ay /= cnt; cx /= cnt; cy /= cnt;
         const al = Math.sqrt(ax * ax + ay * ay) || 1;
@@ -685,6 +728,19 @@ export class Flock {
             this.lastA[i] = Math.atan2((yi - ccy) / ringY, (xi - ccx) / ringX);
           }
         }
+      } else if (si === 3) {
+        // PERCH — HOME's spring, aimed at a seat beside the pointer instead of
+        // a point in the mark, and slower to a stop: landing, not holding
+        // station. No seat left (a recount took it) means go home.
+        if (perchPt) {
+          const dx = perchPt.tx - xi, dy = perchPt.ty - yi;
+          const d = Math.sqrt(dx * dx + dy * dy) || 1e-3;
+          const pull = Math.min(d * p.homePull, p.homeSpeed);
+          Fx += (dx / d * pull - vx[i]) * 2.2; Fy += (dy / d * pull - vy[i]) * 2.2;
+          const want = p.cruise * Math.min(1, 0.1 + d / 90);
+          const k = (want - sp) * 0.8;
+          Fx += vx[i] / sp * k; Fy += vy[i] / sp * k;
+        } else st[i] = 0;
       } else {
         // ROAM — a wide elliptical lap through the open space, then home.
         // Each bird flies its own ring (scale, centre, slow breathing), so
@@ -713,7 +769,10 @@ export class Flock {
 
       // You. A parked pointer keeps a small polite clearing; a moving one
       // startles — each bird breaks in its own direction, no radial blast.
-      if (ptr.on) {
+      // The bird sitting with you is exempt from both: the clearing would shove
+      // it off, and the near-startle fires inside 80 px whether or not you
+      // moved — which is exactly where it is.
+      if (ptr.on && si !== 3) {
         const dx = xi - ptr.x, dy = yi - ptr.y, d2p = dx * dx + dy * dy;
         if (d2p < p.pointerRadius * p.pointerRadius && d2p > 1e-4) {
           const d = Math.sqrt(d2p);
@@ -742,7 +801,7 @@ export class Flock {
       // this replaced hard walls. Not felt at all in HOME (the mark holds
       // its own shape regardless of what's beneath it), only softly while
       // roaming or startled, so it reads as ambient guidance, never a cage.
-      if (mode !== 'snow' && si !== 0 && this.obstacles.length) {
+      if (mode !== 'snow' && si !== 0 && si !== 3 && this.obstacles.length) {
         const fv = this._dv;
         this._fieldForce(xi, yi + scroll, fv);
         Fx += fv.x; Fy += fv.y;
@@ -754,7 +813,7 @@ export class Flock {
       // load-bearing mechanic.
       {
         const sp2 = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
-        if (sp2 < 6 && si !== 0) {
+        if (sp2 < 6 && si !== 0 && si !== 3) {   // a perched bird is meant to be still
           this.slow[i] += dt;
           if (this.slow[i] > 2) {
             this.slow[i] = 0; st[i] = 1; this.stT[i] = 0.5;
@@ -1122,6 +1181,7 @@ export class Runner {
         if (m.season) this.flock.season(m.season);
         if (m.still) this.settle();
         else this.start();
+        this._report(0);   // so the page can answer for the flock before the first second
         break;
       }
       case 'resize':
@@ -1135,11 +1195,12 @@ export class Runner {
       case 'gravity': if (f) { f.gravity.x = m.x; f.gravity.y = m.y; } break;
       case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(120); } break;
       case 'scroll': if (f) f.scroll = m.y; break;
-      case 'snapshot': this.onsnapshot?.({ x: [...f.x], y: [...f.y], vx: [...f.vx], vy: [...f.vy], st: [...f.st], scroll: f.scroll, obstacles: f.obstacles, homeBox: f.homeBox ? { ...f.homeBox } : null, homeFit: f.homeFit, w: f.w, h: f.h }); break;
+      case 'snapshot': this.onsnapshot?.({ x: [...f.x], y: [...f.y], vx: [...f.vx], vy: [...f.vy], st: [...f.st], scroll: f.scroll, obstacles: f.obstacles, homeBox: f.homeBox ? { ...f.homeBox } : null, homeFit: f.homeFit, perch: f.perch ? { ...f.perch } : null, w: f.w, h: f.h }); break;
       case 'home': f?.setHome(m.points, m.aspect, m.size); if (this.still) this.settle(); break;
       case 'home-size': f?.setHomeSize(m.size); if (this.still) this.settle(180); break;
       case 'home-off': f?.clearHome(); break;
       case 'lure': if (f) f.homeLure = m.at || null; break;
+      case 'perch': f?.setPerch(m.at || null); break;
       case 'tempo': if (f) f.tempo = m.value; break;
       case 'count': f?.setCount(m.value); break;
       case 'params': if (f) Object.assign(f.p, m.params); break;
@@ -1169,11 +1230,18 @@ export class Runner {
     // back either way (a frame costs ~0.04 ms — there is nothing to adapt).
     this.accum += dt;
     if (this.accum >= 1) {
-      this.onstats?.({ fps: this.frames / this.accum, n: this.flock.n, renderer: this.painter.name });
+      this._report(this.frames / this.accum);
       this.frames = 0; this.accum = 0;
     }
     this.raf(this.tick);
   };
+
+  // Once a second, and once at init. It carries the running params as well as
+  // the rate, because that is the page's only view of them: main.js does not
+  // import this module at all on the worker path — see the note at the top.
+  _report(fps) {
+    this.onstats?.({ fps, n: this.flock.n, renderer: this.painter.name, p: { ...this.flock.p } });
+  }
 
   draw() {
     this.flock.geometry();

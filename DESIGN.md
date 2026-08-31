@@ -5,7 +5,8 @@ The spec the code is checked against. If the site and this file disagree, one of
 ## What it is
 
 A calling card whose craft is the message. Name, one dry line, two links, an archive of
-six freelance sites from 2012–2014, a footer. Almost no words; the flock does the talking.
+seven sites from 2012–2014 — six built for other people and the one this page replaced —
+and a footer. Almost no words; the flock does the talking.
 
 ## The flock
 
@@ -18,7 +19,7 @@ fallback. The main thread only sends small messages (pointer, where home is).
 
 - **Rules, in order of weight:** separation, alignment, cohesion, and *you* — a moving
   pointer startles; content merely nudges (see below).
-- **Three states per bird.** HOME: softly sprung to its own point in the 2013 brush *jm*
+- **Four states per bird.** HOME: softly sprung to its own point in the 2013 brush *jm*
   (a 208-point cloud sampled from the old logo — `js/mark.js`); near home, cruise drops
   to a few px/s so the mark is legible but never still, and the whole mark sways ±5 px on
   a slow sine. STARTLE: a moving pointer nearby makes each bird break on its *own* heading
@@ -28,7 +29,25 @@ fallback. The main thread only sends small messages (pointer, where home is).
   (random per bird, its own ring — scale, centre, direction all redrawn on departure, so
   no two birds ever trace the same loop), before drifting home. A disrupted flock takes
   real time to reassemble, staggered bird by bird, and a settled flock always has a few
-  birds out on a lap — the idle state is never 100 % of the flock at once.
+  birds out on a lap — the idle state is never 100 % of the flock at once. PERCH: below.
+- **A pointer that stops moving stops being a predator.** Until now *you* could only ever
+  be a threat: you are the fourth rule, and every branch of it pushed birds away. Leave the
+  mouse alone for 45 seconds and the nearest bird — never one already fleeing — flies over
+  and settles 32 px off the cursor, on the line it arrived along, wings held in the same
+  roost gait the mark uses. Move one pixel and it goes the ordinary way: startled, on a
+  heading away from you. It is HOME's own spring aimed at a seat beside the cursor instead
+  of a point in the mark, and what it needed was not a new force but three **exemptions**,
+  each of which would otherwise have made it impossible: the parked pointer's polite
+  clearing would shove it off the seat; the near-pointer startle fires inside 80 px
+  *whether or not you moved*, which is exactly where it is sitting; and the generic unstick
+  breaks out any slow bird that has been off the mark for two seconds, which is a precise
+  description of a bird that has landed. It is exempt from the content field too, because a
+  resting cursor is usually on top of words, and a bird pushed off the text is a bird that
+  failed to land. Measured: it arrives at ~35 px and holds at 1–2 px/s. `?perch=` sets the
+  wait in seconds and `flock.perch()` skips it; `check.mjs` pins both halves — that exactly
+  one bird settles near a still cursor, and that the first movement takes it away. Nothing
+  polls: it is a single timer that every pointer movement throws away, and it never arms on
+  touch, under reduced motion, in December, or while a sheet is open.
 - **The mark lives in whitespace, not at a fixed spot.** Where it sits, and — when the
   viewport is too cramped to hold it — how big it is:
   a placement solver (`_placeHome`, run once a step — it's a coarse 7×6 grid
@@ -173,9 +192,12 @@ fallback. The main thread only sends small messages (pointer, where home is).
   not by the inline `js` probe. Gating it on `js` meant any failure in main.js (a stale
   cached copy, a bad import) hid the fallback while the canvas never started: an empty
   sky with no birds from either path. Now a broken main.js degrades to the still.
-- **Hidden handles:** `window.flock` (count, fps, params, home, season(), tempo(), hue,
-  seed, where, snapshot()), `?n=` `?seed=` `?still` `?hue=` `?season=snow` `?mainthread`.
-  One console line.
+- **Hidden handles:** `window.flock` (count, fps, params, home, season(), perch(), tempo(),
+  hue, light, seed, where, snapshot()), `?n=` `?seed=` `?still` `?hue=` `?hour=` `?moon=`
+  `?perch=` `?season=snow` `?mainthread`. One console line. `flock.params` reports the
+  params the flock is **running**, not a copy of the defaults it started from — they ride
+  the same once-a-second channel as the frame rate, which is also the only way the page can
+  know them now that it does not import the simulation (see *Engineering constraints*).
 
 ## Flight
 
@@ -435,6 +457,28 @@ steps, so it is coarse. It is the fallback; it only has to be *right*, not equal
 same hour `og.png` is shot at. Only the angle bakes in: the still strokes `currentColor`, so
 its colour still follows the theme at read time.
 
+### The moon has phases
+
+The night's light was the same light every night. It is the moon — so it now follows the
+moon's own cycle, and only in one place: the **glint**. A crescent is a smaller specular
+source and flashes off a wing less; a full moon is exactly the number the site had before.
+The illuminated fraction comes from the synodic month alone (`moonLit`, three lines, no
+ephemeris) — checked against the real full moons of 3 January and 28 August 2026, both hit.
+
+Two things it deliberately does not do. It never touches **`glow`**: the wash is what a
+dark-adapted eye reads the page by, and dimming moonlight photometrically is the mistake
+this file has already made twice (above). And it is not keyed to the clock — how lunar an
+hour is comes off `power`, which is 1 at every daylight key and at most 0.5 at every lunar
+one, so `lunar = clamp((1 − power)·2)` is 0 through the day, 1 once the sun is down, and
+**continuous across both handovers**; a second set of hour keys could have drifted out of
+step with the first. The phase's effect therefore fades in through dusk as the sun's fades
+out, and no hour has an edge in it.
+
+It is a whisper, and measured as one: at 2 am, full moon against new moves 1 199 pixels by
+an average of 1.09 levels — the glint halves, 0.251 to 0.113, but glint is a cubed
+alignment term held to 0.5. At noon it moves **zero** pixels, which is the check that it
+stays out of daylight. `?moon=` pins it, and `window.flock.light.moon` reads it.
+
 **`?hour=`** pins the clock — for the hue *and* the light — so a tool's screenshot
 reproduces. `tools/og.mjs` pins `?hour=9` alongside `?still`, `?seed=` and reduced motion,
 and `og.png` is byte-identical run to run. `?hue=` still pins the accent on its own.
@@ -525,6 +569,11 @@ carry the difference instead:
 Both sections' rows are numbered from `01`. Numbering is per section, so each list counts its
 own contents and neither renumbers when the other grows.
 
+**`j` and `k` walk the rows**, both lists, in the order they are written. Focus is the whole
+mechanism — it already draws the ring, takes the nudge and the accent, scrolls itself into
+view and opens on Enter — so the feature is four lines and no new visual state. Inside an
+open sheet the pair does what `←`/`→` do: the same gesture, one level in.
+
 **Why it moves the mark and not the birds.** The first design called a few birds over with the
 `attract` the taps already use. It cannot work: in `home` every bird is committed to its own
 point on the mark — measured, 140 of 140 in state 0 — and at *twenty times* the intended force
@@ -584,6 +633,16 @@ never briefly wrong. The word is the visible label *and* a substring of the `ari
 the accessible name and the readable one agree (WCAG 2.5.3). With no script it cannot switch
 anything, so it is not offered at all.
 
+**A target you can hit is not the same thing as a shape you can see**, and this control needs
+both, at different sizes. It was 44 px tall because the *target* is — and at that height it
+was more than twice the dateline beside it, a button parked in a line of quiet mono type and
+the loudest thing in the footer. The box is still 44 px; the **pill is now a pseudo-element
+28 px tall**, sized to the line of type it sits in. The 8 px above and below are forgiving
+slop, not the affordance — the pill, the icon and the word are all still visible, which is
+the entire point of the redesign that gave this control a surface. The hover fill and the
+focus ring moved onto the pseudo-element with it, so both draw around the shape you can see
+instead of the box around it.
+
 Both animate **colour and transform only** — nothing interactive on this page touches a
 layout property, and both borrow the same two timing tokens (`--t-nudge` 0.45 s for travel,
 `--t-tint` 0.3 s for colour) so every control settles on the same beat.
@@ -592,6 +651,27 @@ layout property, and both borrow the same two timing tokens (`--t-nudge` 0.45 s 
 
 Each project's full-length 960 px screenshot (AVIF → WebP → the original PNG from
 `/2013/img`) lives in a `<section class="sheet">` inside its row's `<li>`.
+
+- **The seventh sheet is this site, in 2013.** The archive listed what was built for other
+  people and left out the best thing built in those years — the page whose brush mark 140
+  birds spend all day assembling. Nothing linked to `/2013/` any more either, so the
+  question the flock raises had no answer anywhere on the site. Row 07, `jugalm.com · Web
+  & Identity`, opens on the old homepage with the *jm* at the top of it, and its caption is
+  the only one that leads somewhere: the page is still running. It is also the only sheet
+  not dug out of a folder — there is no 2013 PNG of it, because it is not a picture, it is
+  a site. `images.mjs` shoots it from the running server at the same 960 px, and skips that
+  step with a note if no server is up. Having no original is also why its `<img src>` falls
+  back to the WebP rather than to a PNG: the other six keep their 2013-era originals
+  because those *are* the artefact, and inventing one here would carry ~700 KB to be the
+  fallback for a browser that supports `<dialog>` and `light-dark()` but not WebP.
+- **A sheet opens roughly composed.** Each screenshot's own three bands — top, middle and
+  bottom, each the average of a twelfth of the image — become a `linear-gradient` behind
+  the `<img>`, so a slow connection sees Aprende's dark header, Golem's red and Meditation
+  Music's peach in the right places instead of a white slab of the right shape. `#fff` is
+  still the default for anything without one. The colours are written **into index.html by
+  `images.mjs`**, not pasted from its output: a colour typed by hand is a colour that goes
+  stale the next time a screenshot is retaken, which is the same reasoning as the counted
+  row numbers.
 
 - **No script:** `:target` turns the sheet into a full-screen overlay; a close link goes
   back to `#archive`.
@@ -653,6 +733,31 @@ Each project's full-length 960 px screenshot (AVIF → WebP → the original PNG
   `@media (color-scheme: dark)` — so the *switch* is written for both dark paths while the
   *value* stays in one place.
 
+### On paper
+
+Nobody prints a web page; the person who does gets one that was expecting them. `@media
+print` used to be four `display: none`s and a rule that printed all nine screenshots. It is
+now a **calling card on one sheet** — measured at one page on A4 *and* US Letter, which is
+the constraint that set every other number in the block.
+
+- **The letterhead is the flock's own still.** The inline no-JS SVG is already in the
+  document, so the whole section costs nothing anyone downloads: print releases it from
+  `.flock-on`'s `display: none`, unpins it, and lets it run the page width. It is a whole
+  1560 × 1020 frame of sky with the birds only in the middle, so the empty air is pulled
+  back off the page with negative margins rather than printed as a gap — the alternative
+  was scaling the frame down until the mark was a stamp.
+- **It prints in the light palette whatever theme is on screen**, and one declaration says
+  so: `:root { color-scheme: light }`. Every token is a `light-dark()` pair, so the scheme
+  *is* the palette. The two PDFs came out byte-identical.
+- **The hero must not print half-faded.** On screen it recedes on a scroll-driven
+  animation, so printing while scrolled down would have committed whatever opacity the page
+  happened to be at. Print resets the animation, the opacity and the visibility outright.
+- **44 px is a fingertip and there are none here**, so rows drop to the density the type
+  wants — which is most of what makes it one sheet — and the row arrows go, since they
+  point at things you cannot press.
+- **The archive prints as the list it is**, not as nine full-length screenshots. Unless a
+  sheet is actually open, in which case that is the thing you asked to print.
+
 ## Accessibility
 
 WCAG 2.2 AA throughout, verified by axe on light/dark × desktop/phone × home/sheet/404.
@@ -675,14 +780,39 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   Tailscale instead.
 - No build step for the site. No framework, and no third-party requests
   (the network tab is this repo). `view-source` is commented and unminified.
+- **The page does not import the simulation.** This was the single largest item on the
+  page, and it was paid **twice**: `js/flock.js` is 22.7 KB gzipped, the worker fetches it
+  because it runs it, and `main.js` fetched it too — on the path essentially every visitor
+  takes, to run none of it. It wanted three things from that module and none of them needed
+  the module: `MARK`/`MARK_ASPECT`, which live in `mark.js` and were only being
+  *re-exported* by `flock.js` (dropped, so the worker stops fetching `mark.js` as well —
+  the tools that used the re-export now import `mark.js` directly); `DEFAULTS`, for one
+  console getter, which now reads the params the flock is actually running off the stats
+  message; and `Runner`, which is needed **only if the worker path fails**, so it is now a
+  dynamic `import()` on that branch alone. First load went **98.1 KB → 80.5 KB** with a
+  session's worth of new work already in it, and Lighthouse mobile FCP 1276 → 1052 ms.
+  Two things had to move with it, and both are load-bearing:
+  - **Messages queue until the flock exists.** The fallback start is now `async`, and the
+    rest of the module carries on addressing a flock that is still arriving. `post` begins
+    as a queue and is flushed *after* `init` — never before, because everything else
+    describes the flock that `init` creates. Flushing first left `setHome` landing on a
+    null flock and the mark never appeared; the landscape gate caught it.
+  - **The world is measured at module load**, not at `init`. A queued message carries the
+    value it was composed with, so `sendHome()` queued before an awaited `init` shipped a
+    mark sized against the placeholder 1×1 canvas — a 0.66 px mark, which the same gate
+    caught. Ordering a queue correctly is not enough; the values in it must be right too.
+  - `flock-on` (which stands the no-JS still down) is still set only once the flock is
+    genuinely live — immediately on the worker path, and after the import resolves on the
+    other. A simulation that fails to load must not hide the still that replaces it.
 - Everything is behind feature detection: no Worker/OffscreenCanvas → main thread;
   no View Transitions → plain; no `<dialog>` → `:target`; no script → still.
 - **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; Lighthouse 100/100/100/100 on
-  desktop and mobile; first load < 100 KB gzip (currently 94.9 KB); no console errors;
+  desktop and mobile; first load < 100 KB gzip (currently 80.5 KB); no console errors;
   reduced motion is actually still; no-JS still and `:target` work; the behaviours that
   shipped as screenshots, pinned (landscape stand-down, the thinned phone grid, the theme
   switch under blocked storage — all on `?still&mainthread`, stepping the sim by hand so
-  each is deterministic and takes milliseconds); and offline: kill the network, reload,
+  each is deterministic and takes milliseconds; plus the perch, which is run live rather
+  than stepped, because it is a flight); and offline: kill the network, reload,
   and the page, the flock and a sheet with its screenshot must all still be there.
 - **Gates, other engines** (`tools/engines.mjs`): the same site in WebKit and Firefox —
   the engines where the risky dependencies actually differ (OffscreenCanvas in a module

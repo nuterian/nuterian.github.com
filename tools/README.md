@@ -5,7 +5,7 @@ Dev-only. Nothing in here ships. `npm install` once, then:
 | command                | what                                                                 |
 |------------------------|----------------------------------------------------------------------|
 | `node fonts.mjs`       | subset Geist/Geist Mono → `../fonts/` (needs `src-fonts/*.woff2`)    |
-| `node images.mjs`      | AVIF/WebP screenshots, favicon, mark point cloud                      |
+| `node images.mjs`      | AVIF/WebP screenshots, favicon, mark point cloud, and the sheet placeholders written into `../index.html`. Wants a running `serve.mjs` — the 2013 sheet is shot from `/2013/`, not dug out of a folder; without one that step is skipped |
 | `node still.mjs`       | inline no-JS SVG still → written into `../index.html`                |
 | `node og.mjs`          | `../img/og.png` from `?still&seed=2013&hour=9` — byte-reproducible     |
 | `node serve.mjs 4174`  | static server with gzip + cache headers (what GitHub Pages does)     |
@@ -19,9 +19,10 @@ Dev-only. Nothing in here ships. `npm install` once, then:
 | `node probe.mjs`       | isolates what costs — canvas area, DPR — one variable at a time       |
 | `node tune.mjs '{…}'`  | headless flock tuning: simulate N seconds → PNGs in the scratchpad   |
 
-Anything that takes a picture of the site pins the two clocks that would otherwise move
-under it: `?seed=` fixes the flock, `?hour=` fixes the hue *and* the light (`js/hue.js`),
-and Playwright's `reducedMotion: 'reduce'` stops the CSS animations. `still.mjs` needs no
+Anything that takes a picture of the site pins the clocks that would otherwise move under
+it: `?seed=` fixes the flock, `?hour=` fixes the hue *and* the light, `?moon=` fixes the
+slow clock behind the night's glint (all `js/hue.js`), and Playwright's
+`reducedMotion: 'reduce'` stops the CSS animations. `still.mjs` needs no
 browser and no pinning: it drives the simulation directly, from the seed, and bakes the
 light at the same hour `og.mjs` shoots.
 

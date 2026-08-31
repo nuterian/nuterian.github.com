@@ -142,6 +142,37 @@ console.log('\nbehaviours');
     await uctx.close();
   }
 
+  // Stop moving and one bird comes to sit beside the cursor — and leaves the
+  // moment you move. `?perch=` is the wait, so this takes a second rather than
+  // the 45 a visitor spends earning it. Live (not `?still`): it is a flight.
+  {
+    const pctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const ppage = await pctx.newPage();
+    await ppage.goto(BASE + '/?seed=7&perch=1&mainthread');
+    await ppage.waitForFunction(() => window.flock?._runner?.flock);
+    const PX = 980, PY = 300;
+    await ppage.mouse.move(PX - 40, PY - 40);
+    await ppage.mouse.move(PX, PY);
+    const seat = async () => ppage.evaluate(([x, y]) => {
+      const f = window.flock._runner.flock, c = document.getElementById('flock').getBoundingClientRect();
+      let i = -1; for (let k = 0; k < f.n; k++) if (f.st[k] === 3) i = k;
+      return { n: [...f.st].filter(v => v === 3).length, i,
+               d: i < 0 ? null : Math.hypot(f.x[i] - (x - c.left), f.y[i] - (y - c.top)),
+               v: i < 0 ? null : Math.hypot(f.vx[i], f.vy[i]) };
+    }, [PX, PY]);
+    await ppage.waitForTimeout(6000);          // 1 s of stillness, then the flight over
+    const on = await seat();
+    (on.n === 1 && on.d < 60 && on.v < 12)
+      ? ok(`perch: one bird settled ${on.d.toFixed(0)}px off the cursor at ${on.v.toFixed(1)}px/s`)
+      : fail(`perch: expected exactly one settled bird near the pointer, got ${JSON.stringify(on)}`);
+    await ppage.mouse.move(PX + 4, PY + 3);    // …and the moment you move, it goes
+    await ppage.waitForTimeout(150);
+    const off = await seat();
+    off.n === 0 ? ok('perch: the first movement startles it away')
+                : fail(`perch: still perched after the pointer moved (${JSON.stringify(off)})`);
+    await pctx.close();
+  }
+
   // Blocked storage must not break the theme switch (Chrome with site data off
   // throws on the localStorage accessor itself).
   const sctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
