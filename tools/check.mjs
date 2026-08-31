@@ -276,6 +276,18 @@ console.log('\noffline');
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.waitForFunction(() => caches.match('/js/flock.js').then(r => !!r), null, { timeout: 8000 });
   await page.waitForFunction(() => { const i = document.querySelector('#sheet img'); return i && i.complete && i.naturalWidth > 0; });
+  // …and the screenshot must be in the WORKER's cache, not merely in the
+  // browser's. Offline used to be satisfied by an `immutable` HTTP entry alone,
+  // which on Pages is ten minutes rather than forever. Note what this does NOT
+  // prove: whether the <img> beat the worker to control is a race, and it was
+  // measured falling both ways, so this passes with `handOver` (main.js) removed
+  // too. It pins the property, not the mechanism — the mechanism is there to
+  // stop the property depending on who won a race on the day.
+  const cached = await page.waitForFunction(
+    () => caches.match('/img/archive/unlistr-1.avif').then(r => !!r), null, { timeout: 8000 }
+  ).then(() => true).catch(() => false);
+  cached ? ok('offline: the sheet screenshot is in the worker\'s own cache')
+         : fail('offline: the screenshot is only in the HTTP cache — the worker never saw it');
   // Now the network dies. The reload must still be the entire site.
   await ctx.setOffline(true);
   await page.reload({ waitUntil: 'load' });

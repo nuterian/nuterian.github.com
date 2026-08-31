@@ -83,7 +83,7 @@ const PERCH_R = 32;                    // px — a perched bird's seat: clear of
                                        // own arrow, close enough to read as beside it
 
 // Tunables. These are the "feel" — change with care and with a screenshot.
-export const DEFAULTS = {
+const DEFAULTS = {
   perception: 48,     // px — how far a boid can see its neighbours
   separation: 14,     // px — personal space (the mark's points are ~14 px apart)
   cruise: 34,         // px/s — speed the flock relaxes to
@@ -138,7 +138,7 @@ export const DEFAULTS = {
 
 // Deterministic PRNG (mulberry32). A seed makes the flock reproducible, which
 // makes the OG image reproducible — and lets the curious share a `?seed=`.
-export function rng(seed) {
+function rng(seed) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -192,7 +192,7 @@ export function textPoints(ctx2d, text, font, pitch = 6) {
  *   bank  -1…1  roll into the turn
  * Writes [leftX, leftY, rightX, rightY] into out[o…o+3]; allocates nothing.
  */
-export function wingPose(ux, uy, phase, drive, brake, bank, len, bankDepth, out, o) {
+function wingPose(ux, uy, phase, drive, brake, bank, len, bankDepth, out, o) {
   // Skewed waveform: the downstroke is quicker than the recovery upstroke.
   const beat = Math.sin(phase + 0.45 * Math.sin(phase));
   const amp = 0.16 + 0.84 * drive;
@@ -986,7 +986,7 @@ export class Flock {
 // How a wing catches the light (DESIGN.md, "Light"): its screen normal is the
 // segment turned 90°, so it flashes across the beam and goes dark edge-on.
 // Both constants are injected into the GLSL below — one copy of each number.
-export const GLINT = 0.5, SHADE_K = 3;
+const GLINT = 0.5, SHADE_K = 3;
 export function shade(dx, dy, lx, ly, glint) {
   const len = Math.hypot(dx, dy) || 1e-4;
   return glint * GLINT * Math.abs((dx * ly - dy * lx) / len) ** SHADE_K;
@@ -1000,7 +1000,7 @@ export function shade(dx, dy, lx, ly, glint) {
  * work a GPU can be asked to do, which is the point: the CPU's only rendering
  * job is writing ~8 KB of segment data.
  */
-export class GLPainter {
+class GLPainter {
   static try(canvas) {
     try {
       // No MSAA (the fragment shader feathers its own edges), no depth, no
@@ -1130,7 +1130,7 @@ export class GLPainter {
  * Canvas2DPainter — the fallback when WebGL isn't available. Same geometry,
  * batched into six opacity buckets so globalAlpha changes rarely.
  */
-export class Canvas2DPainter {
+class Canvas2DPainter {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });

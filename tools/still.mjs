@@ -2,7 +2,7 @@
 // index.html between <!--STILL--> markers. This is what you see with script off.
 import { readFile, writeFile } from 'node:fs/promises';
 import { Flock, STEP, shade } from '../js/flock.js';
-import { MARK, MARK_ASPECT } from '../js/mark.js';
+import { MARK, MARK_ASPECT, markSize } from '../js/mark.js';
 import { lightAt } from '../js/hue.js';
 
 // The canvas box, matching style.css (#flock: viewport + 60px bleed). Only
@@ -11,7 +11,7 @@ import { lightAt } from '../js/hue.js';
 // the hero text obstacle and glides there on its own over the 900 steps below.
 const W = 1560, H = 1020;
 const f = new Flock({ width: W, height: H, count: 140, seed: 2013 });
-const bw = Math.min(W * 0.4, H * 0.58 * MARK_ASPECT, 840);   // == main.js homeSize()
+const { w: bw } = markSize(W, H, false);   // the one copy of this, in js/mark.js
 f.obstacles = [{ x: 70, y: 660, w: 560, h: 260 }]; // roughly the hero text
 f.setHome(MARK, MARK_ASPECT, { w: bw, h: bw / MARK_ASPECT });
 for (let i = 0; i < 900; i++) f._step(STEP);

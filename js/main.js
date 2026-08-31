@@ -18,7 +18,7 @@
 // because the worker fetches it too. The page needs the mark (which lives in
 // mark.js, where this now asks for it), and the Runner ONLY if the worker path
 // fails, so that one is fetched at the moment it is needed and not before.
-import { MARK, MARK_ASPECT } from './mark.js';
+import { MARK, MARK_ASPECT, markSize } from './mark.js';
 import { hueAt } from './hue.js';
 import { setTheme as applyTheme, nextTheme, lightStyle } from './theme.js';
 import { count } from './count.js';
@@ -381,32 +381,7 @@ function onTilt(e) {
 // across a phone — at which point the strokes cannot separate and the jm
 // collapses into a blob however many birds you throw at it. Phones therefore
 // give the mark a much larger share of a much smaller canvas.
-// The mark grows with the room, but not forever: past this the point pitch
-// outruns the wingspan and the strokes stop joining up — the same pitch-to-span
-// limit the phone hits from the other side, where the birds weld into a blob.
-// 840 px is a 2.6:1 pitch-to-wingspan, measured as the last width at which the
-// jm still reads; at 2560 uncapped (3.3:1) it had come apart into a constellation.
-const MARK_MAX = 840;
-// It scales with the room it has, in BOTH axes. This used to be a fraction of
-// the width under a flat 620 px cap, which meant a 2560-wide desktop wore the
-// same mark as a 1440 one: past ~1476 px the cap bound, the flock stopped
-// growing with the sky, and it read as a small huddle marooned in a lot of empty
-// page. A bird is one fixed size everywhere, so a wider mark is a wider point
-// PITCH — the flock spreads out and thins rather than getting bigger, which is
-// the whole point: fill the space, don't magnify into it. The second term is the
-// height, because a short wide window has no more room than a square one; it is
-// what stops a letterbox viewport asking for a mark taller than its own sky.
-// The height term is DESKTOP ONLY. Applied to a phone it also shrank the
-// landscape case, which dropped the mark's share of the words below the
-// stand-down threshold and put a mark back on a viewport that has no room for
-// one — the exact failure `homeOut` exists to prevent, and the gate caught it.
-// Phones keep the share they were tuned to; nothing about them changes here.
-function homeSize() {
-  const { w, h } = world;
-  const bw = vw() < 700 ? Math.min(w * 0.66, MARK_MAX)
-                        : Math.min(w * 0.4, h * 0.58 * MARK_ASPECT, MARK_MAX);
-  return { w: bw, h: bw / MARK_ASPECT };
-}
+function homeSize() { const { w, h } = world; return markSize(w, h, vw() < 700); }
 // Even at 66% the phone mark is a ~10 px point pitch against a 10.4 px
 // wingspan, and adjacent birds weld into one blob — at any share or wingspan
 // (both were tried; the ratio is what fails). So a phone keeps the size and
@@ -572,8 +547,24 @@ if (arrow && 'IntersectionObserver' in window) {
 // flock included — works with no network at all (see sw.js). Registered
 // after load so it never competes with the first paint. A page that is
 // actually offline says so where the curious will look.
+// A sheet opened by a deep link on a FIRST visit is the one thing the worker
+// never sees. It registers on `load` and only starts controlling the page after
+// that, so the <img> has already been fetched around it and is not in its cache
+// — offline, that screenshot lasts exactly as long as the browser's own HTTP
+// copy, which on GitHub Pages is ten minutes, not forever. So once the worker is
+// actually in control, whatever is already on screen is asked for one more time.
+// `force-cache` means the browser answers from disk for nothing, and the worker,
+// now in the middle, keeps it. Later sheets need none of this: by then the page
+// is controlled and their images pass through it on the way in.
+async function handOver() {
+  await navigator.serviceWorker.ready;
+  if (!navigator.serviceWorker.controller)
+    await new Promise(r => navigator.serviceWorker.addEventListener('controllerchange', r, { once: true }));
+  const img = $('#sheet img');
+  if (img?.currentSrc) fetch(img.currentSrc, { cache: 'force-cache' }).catch(() => {});
+}
 if ('serviceWorker' in navigator) {
-  addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(handOver).catch(() => {}));
   if (navigator.serviceWorker.controller && !navigator.onLine)
     console.log('%cflock%c offline — everything you see was already here.', 'font-weight:600', '');
 }

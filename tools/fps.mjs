@@ -1,15 +1,25 @@
 // Measures the frame rate the flock actually achieves — the number the user
 // sees — across worker/main-thread and canvas configurations.
+//
+// It runs HEADED, and that is the whole point of the tool. Headless Chromium
+// has no GPU compositing: a viewport-sized transparent canvas is re-uploaded
+// every frame and throttles the worker's entire loop, so this reported 34–46
+// draws/s for configurations that are a flat 60 on the same machine with a real
+// GPU — 600 birds at DPR 2 included. An instrument that reads "bad" for a site
+// that is fine cannot tell you when the site stops being fine, which is the one
+// thing it exists for. `--headless` is available for a machine with no display;
+// treat what it prints as a floor, not as the rate anybody experiences.
 import { chromium } from 'playwright';
+const headless = process.argv.includes('--headless');
 const configs = [
   ['worker · small canvas @1.5x', '?seed=7'],
   ['main   · small canvas @1.5x', '?seed=7&mainthread'],
   ['worker · small canvas @2x',   '?seed=7&fdpr=2'],
   ['worker · 600 birds',          '?seed=7&n=600'],
 ];
-const browser = await chromium.launch();
-console.log('\nflock frame rate — 1600x1000 @2x device\n');
-console.log('configuration                 draws/s  main-rAF/s  birds');
+const browser = await chromium.launch({ headless });
+console.log(`\nflock frame rate — 1600x1000 @2x device — ${headless ? 'HEADLESS: software compositing, numbers are a floor' : 'headed, real GPU'}\n`);
+console.log('configuration                 draws/s  main-rAF/s  birds  renderer');
 for (const [name, q] of configs) {
   const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
@@ -18,8 +28,10 @@ for (const [name, q] of configs) {
   await page.waitForTimeout(3000);
   const a = await page.evaluate(() => ({ r: window.__r, t: performance.now() }));
   await page.waitForTimeout(3000);
-  const b = await page.evaluate(() => ({ r: window.__r, t: performance.now(), fps: window.flock?.fps, n: window.flock?.count }));
-  console.log(`${name.padEnd(28)} ${String(b.fps ?? '-').padStart(7)} ${(((b.r - a.r) / (b.t - a.t)) * 1000).toFixed(1).padStart(11)} ${String(b.n ?? '-').padStart(6)}`);
+  const b = await page.evaluate(() => ({ r: window.__r, t: performance.now(), fps: window.flock?.fps, n: window.flock?.count, where: window.flock?.where }));
+  // The renderer is printed because a fallback to canvas2d or software GL is
+  // the usual explanation for a number that looks wrong, and it is invisible otherwise.
+  console.log(`${name.padEnd(28)} ${String(b.fps ?? '-').padStart(7)} ${(((b.r - a.r) / (b.t - a.t)) * 1000).toFixed(1).padStart(11)} ${String(b.n ?? '-').padStart(6)}  ${b.where ?? '-'}`);
   await ctx.close();
 }
 await browser.close();

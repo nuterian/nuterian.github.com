@@ -192,6 +192,13 @@ fallback. The main thread only sends small messages (pointer, where home is).
   nothing re-solves until something genuinely changes — sampled every 5 s for a minute at
   rest, the box does not move by a pixel. `check.mjs` drives real wheel events down and back
   and fails if the mark comes to rest more than 12 px from where it started.
+- **One copy of the size formula.** `markSize(w, h, phone)` lives in `js/mark.js`, with the
+  mark itself, because the two places that need it cannot import each other: the page, which
+  has a DOM, and `tools/still.mjs`, which has none. It was written out in both, and a copy is
+  a thing that drifts — this one had to be hand-edited twice in one afternoon to keep the
+  no-JS still matching the canvas beside it. Pure by construction: hand it numbers, it hands
+  back a size. The still regenerates byte-identical across the move, which is the proof the
+  two copies really were the same.
 - **The mark grows with the room it has, and the SPACING is what grows.** It used to be a
   fraction of the width under a flat 620 px cap, which bound above about 1476 px — so a
   2560-wide desktop wore exactly the same mark as a 1440 one, and read as a small huddle
@@ -214,6 +221,15 @@ fallback. The main thread only sends small messages (pointer, where home is).
     prevent. The gate caught it. Phones keep the share they were tuned to.
   - `tools/still.mjs` carries its own copy of this formula, having no DOM to ask, so **the
     two are changed together**; the comment there says so.
+- **`fps.mjs` runs headed, and that is the point of it.** Headless Chromium has no GPU
+  compositing — a viewport-sized transparent canvas is re-uploaded every frame and throttles
+  the worker's whole loop — so the tool built to report the frame rate a person actually sees
+  was reporting 34–46 draws/s for configurations that are a flat **60** on the same machine
+  with a real GPU, 600 birds at DPR 2 included. An instrument that reads "bad" for a site that
+  is fine cannot tell you when the site stops being fine. `--headless` remains, for a machine
+  with no display, and prints that its numbers are a floor. (`perf.mjs` stays headless on
+  purpose: it measures main-thread frame times and long tasks, and its budgets are calibrated
+  to that software-GL floor — it says so in its own header.)
 - **Bird count is free; canvas area is not.** Measured on a throttled phone (iPhone 13
   emulation at 4× and 6× CPU): 60, 90, 120, 140 and 200 birds all hold 60 draws/s with zero
   frames over 20 ms. The phone count sat at 60 for no benefit that could be measured — the
@@ -873,6 +889,11 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   Tailscale instead.
 - No build step for the site. No framework, and no third-party requests
   (the network tab is this repo). `view-source` is commented and unminified.
+- **`flock.js` exports only what is imported.** It offered eleven symbols and five had no
+  consumer anywhere: `DEFAULTS`, `rng`, `wingPose`, `GLPainter`, `Canvas2DPainter`. `DEFAULTS`
+  became vestigial the moment the page stopped importing the simulation (below) and nothing
+  noticed. They are internal now. Almost no bytes — the point is that a public export is a
+  promise, and five of them were promises to nobody.
 - **The page does not import the simulation.** This was the single largest item on the
   page, and it was paid **twice**: `js/flock.js` is 22.7 KB gzipped, the worker fetches it
   because it runs it, and `main.js` fetched it too — on the path essentially every visitor
@@ -926,6 +947,16 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   scrolled); archive screenshots are cached as they are seen; the cache version exists to
   *drop* things, not to update them — updates flow through on their own. Offline, the
   console says so: `flock offline — everything you see was already here.`
+- **The screenshot is handed to the worker once the worker exists.** A sheet opened by a deep
+  link on a first visit is the one thing it never sees: it registers on `load` and starts
+  controlling the page after that, so the `<img>` has already been fetched around it. Whether
+  the image or the worker wins is a race, and it was measured falling both ways. So once the
+  worker is in control, whatever is on screen is asked for once more — `force-cache`, which
+  the browser answers from disk for nothing, with the worker now in the middle to keep it.
+  The offline gate asserts the screenshot is in the **worker's** cache, not merely the
+  browser's; it is honest about what that does not prove (it passes with the hand-over removed
+  too, because the race can fall the right way). The mechanism is there so the property stops
+  depending on who won on the day.
 - **None of the paragraph above was true, because a worker's own `fetch` goes through the
   HTTP cache like anyone else's** — and these assets are served `immutable` for a year. The
   background refresh was handed back the very bytes it was trying to replace, and stored
