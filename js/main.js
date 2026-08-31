@@ -381,9 +381,30 @@ function onTilt(e) {
 // across a phone — at which point the strokes cannot separate and the jm
 // collapses into a blob however many birds you throw at it. Phones therefore
 // give the mark a much larger share of a much smaller canvas.
+// The mark grows with the room, but not forever: past this the point pitch
+// outruns the wingspan and the strokes stop joining up — the same pitch-to-span
+// limit the phone hits from the other side, where the birds weld into a blob.
+// 840 px is a 2.6:1 pitch-to-wingspan, measured as the last width at which the
+// jm still reads; at 2560 uncapped (3.3:1) it had come apart into a constellation.
+const MARK_MAX = 840;
+// It scales with the room it has, in BOTH axes. This used to be a fraction of
+// the width under a flat 620 px cap, which meant a 2560-wide desktop wore the
+// same mark as a 1440 one: past ~1476 px the cap bound, the flock stopped
+// growing with the sky, and it read as a small huddle marooned in a lot of empty
+// page. A bird is one fixed size everywhere, so a wider mark is a wider point
+// PITCH — the flock spreads out and thins rather than getting bigger, which is
+// the whole point: fill the space, don't magnify into it. The second term is the
+// height, because a short wide window has no more room than a square one; it is
+// what stops a letterbox viewport asking for a mark taller than its own sky.
+// The height term is DESKTOP ONLY. Applied to a phone it also shrank the
+// landscape case, which dropped the mark's share of the words below the
+// stand-down threshold and put a mark back on a viewport that has no room for
+// one — the exact failure `homeOut` exists to prevent, and the gate caught it.
+// Phones keep the share they were tuned to; nothing about them changes here.
 function homeSize() {
-  const { w } = world;
-  const bw = Math.min(w * (vw() < 700 ? 0.66 : 0.42), 620);
+  const { w, h } = world;
+  const bw = vw() < 700 ? Math.min(w * 0.66, MARK_MAX)
+                        : Math.min(w * 0.4, h * 0.58 * MARK_ASPECT, MARK_MAX);
   return { w: bw, h: bw / MARK_ASPECT };
 }
 // Even at 66% the phone mark is a ~10 px point pitch against a 10.4 px

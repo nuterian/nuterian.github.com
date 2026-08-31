@@ -11,7 +11,7 @@ import { lightAt } from '../js/hue.js';
 // the hero text obstacle and glides there on its own over the 900 steps below.
 const W = 1560, H = 1020;
 const f = new Flock({ width: W, height: H, count: 140, seed: 2013 });
-const bw = Math.min(W * 0.42, 620);
+const bw = Math.min(W * 0.4, H * 0.58 * MARK_ASPECT, 840);   // == main.js homeSize()
 f.obstacles = [{ x: 70, y: 660, w: 560, h: 260 }]; // roughly the hero text
 f.setHome(MARK, MARK_ASPECT, { w: bw, h: bw / MARK_ASPECT });
 for (let i = 0; i < 900; i++) f._step(STEP);

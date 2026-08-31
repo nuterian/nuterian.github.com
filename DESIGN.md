@@ -166,6 +166,28 @@ fallback. The main thread only sends small messages (pointer, where home is).
   phone keeps the size and halves the *grid*: `MARK_THIN` (main.js) takes a checkerboard of
   the sampled points, the pitch grows 1.4×, and 120 birds fill every point that remains
   instead of two-thirds of 208 — the strokes separate again.
+- **The mark grows with the room it has, and the SPACING is what grows.** It used to be a
+  fraction of the width under a flat 620 px cap, which bound above about 1476 px — so a
+  2560-wide desktop wore exactly the same mark as a 1440 one, and read as a small huddle
+  marooned in a lot of empty page. It is now `min(40 % of the canvas width, 58 % of its
+  height × aspect, 840)`. Because a bird is one fixed size everywhere, a wider mark is a
+  wider point **pitch**: the flock spreads out and thins rather than magnifying. Measured, as
+  a multiple of the 10.4 px wingspan — 1.73 at 1280, 1.93 at 1440, 2.22 at 1680, 2.52 at
+  1920, 2.59 at 2560. The fraction is 0.40 rather than 0.42 precisely so 1440 keeps the size
+  it had: 0.42 asked for 655 px there, which overlapped enough content that the fit ladder
+  *shrank* it to 524 — smaller than before the change, in the one place it must not move.
+  - **840 px is where it stops, and that is a legibility limit rather than a taste.**
+    Uncapped, 2560 asked for 1126 px at a 3.31 pitch, and at that spacing the strokes stop
+    joining and the *jm* comes apart into a constellation — the same pitch-to-wingspan
+    failure a phone has from the other side, where the birds weld into a blob. 2.6 is the
+    last ratio at which it still reads; both ends were photographed.
+  - **The height term is desktop-only.** A short wide window has no more room than a square
+    one, so the request is capped against the canvas height too. Applied to phones as well it
+    shrank the *landscape* mark enough to drop its share of the words below `FIT_GIVEUP`,
+    which put a mark back onto a landscape phone — the exact failure `homeOut` exists to
+    prevent. The gate caught it. Phones keep the share they were tuned to.
+  - `tools/still.mjs` carries its own copy of this formula, having no DOM to ask, so **the
+    two are changed together**; the comment there says so.
 - **Bird count is free; canvas area is not.** Measured on a throttled phone (iPhone 13
   emulation at 4× and 6× CPU): 60, 90, 120, 140 and 200 birds all hold 60 draws/s with zero
   frames over 20 ms. The phone count sat at 60 for no benefit that could be measured — the
@@ -552,7 +574,21 @@ flock owns the rest; the hero text recedes on scroll (scroll-driven animation).
   no-script floor: wrong by 46 px, but never hiding anything. Verified at 718 / 724 / 844 px
   of visible height — hero matches all three, links clear the bottom by the full gutter, the
   archive never peeks. The sheet keeps `dvh`: nothing in it is bottom-anchored and it
-  scrolls internally, so an over-reported height hides nothing you cannot reach. The hero's
+  scrolls internally, so an over-reported height hides nothing you cannot reach.
+  **Two things about that clearance were wrong.** The links carried the UA's own
+  `ul { margin-block: 1em }` underneath a rule that set only `margin-top`, so the hero cleared
+  the bottom by the gutter *plus* an accidental 13 px nobody chose, and the whole block sat
+  that much high. And the gutter comes from the **width**, which is the wrong axis for the one
+  padding that shares a budget with the text: at 1280×360 — a laptop with its window dragged
+  flat — it took 64 px off each end of a 360 px viewport, 36 % of it, and the hero grew taller
+  than the screen it is supposed to be exactly as tall as. Vertically the hero now takes
+  whichever is smaller, the gutter or a twelfth of `--vh` — the same height the box is measured
+  against, so the two cannot disagree. It binds only where the viewport is genuinely short;
+  every ordinary size still gets the full gutter.
+  **Pinned across 8 viewports in `check.mjs`**, 320×480 to 2560×1440 plus a 1440×300: the name
+  and the links are above the fold, the links clear the bottom by exactly the padding, the hero
+  is never taller than the viewport, and the document is never wider than it. Swept by hand
+  across 25 sizes first — phones, landscape phones, tablets, laptops, ultrawides and absurdities. The hero's
 `archive ↓` link keeps a slow 2.6 s bob on its arrow, eased at both ends so it hangs at the
 top and bottom of the travel — the one piece of motion on the page that is *pointing* at
 something. It rides `translate` while the hover nudge stays on `transform`, because the two
@@ -843,7 +879,8 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   shipped as screenshots, pinned (landscape stand-down, the thinned phone grid, the theme
   switch under blocked storage — all on `?still&mainthread`, stepping the sim by hand so
   each is deterministic and takes milliseconds; plus the perch, which is run live rather
-  than stepped, because it is a flight); and offline: kill the network, reload,
+  than stepped, because it is a flight; plus the hero across eight viewports, which is
+  layout and needs no flock at all); and offline: kill the network, reload,
   and the page, the flock and a sheet with its screenshot must all still be there.
 - **Gates, other engines** (`tools/engines.mjs`): the same site in WebKit and Firefox —
   the engines where the risky dependencies actually differ (OffscreenCanvas in a module

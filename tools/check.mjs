@@ -142,6 +142,37 @@ console.log('\nbehaviours');
     await uctx.close();
   }
 
+  // The name and the links are the page's whole job on first sight, so they are
+  // above the fold at EVERY viewport, and the hero is never taller than the
+  // screen it is meant to be exactly as tall as. Extremes included, because the
+  // gutter is derived from the width and the height is what it has to fit in.
+  {
+    const sizes = [[320, 480], [390, 844], [667, 375], [768, 1024],
+                   [1280, 800], [1440, 900], [2560, 1440], [1440, 300]];
+    const bad = [];
+    for (const [w, h] of sizes) {
+      const vctx = await browser.newContext({ viewport: { width: w, height: h }, serviceWorkers: 'block' });
+      const vpage = await vctx.newPage();
+      await vpage.goto(BASE + '/?seed=7&still'); await vpage.waitForTimeout(500);
+      const r = await vpage.evaluate(() => {
+        const R = e => { const b = e.getBoundingClientRect(); return { t: Math.round(b.top), b: Math.round(b.bottom) }; };
+        const hero = document.querySelector('.hero');
+        return { h1: R(document.querySelector('h1')), lk: R(document.querySelector('.hero-links')),
+                 heroH: Math.round(hero.getBoundingClientRect().height), vh: innerHeight,
+                 pad: Math.round(parseFloat(getComputedStyle(hero).paddingBottom)),
+                 overflowX: document.documentElement.scrollWidth > innerWidth + 1 };
+      });
+      const seen = x => x.t >= -1 && x.b <= r.vh + 1;
+      if (!seen(r.h1)) bad.push(`${w}×${h}: the name is off-fold`);
+      if (!seen(r.lk)) bad.push(`${w}×${h}: the links are off-fold`);
+      if (r.heroH > r.vh + 1) bad.push(`${w}×${h}: hero ${r.heroH} > viewport ${r.vh}`);
+      if (Math.abs(r.vh - r.lk.b - r.pad) > 2) bad.push(`${w}×${h}: links clear the bottom by ${r.vh - r.lk.b}, not the ${r.pad} padding`);
+      if (r.overflowX) bad.push(`${w}×${h}: the document is wider than the viewport`);
+      await vctx.close();
+    }
+    bad.length ? bad.forEach(fail) : ok(`hero: name and links above the fold, bottom-anchored, at all ${sizes.length} viewports`);
+  }
+
   // Stop moving and one bird comes to sit beside the cursor — and leaves the
   // moment you move. `?perch=` is the wait, so this takes a second rather than
   // the 45 a visitor spends earning it. Live (not `?still`): it is a flight.

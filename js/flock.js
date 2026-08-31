@@ -67,8 +67,12 @@ export const STEP = 1 / 60;            // fixed simulation step
 const MAX_STEPS = 4;                   // per frame, before we drop time instead
 const TAU = Math.PI * 2, PI = Math.PI, DEG = Math.PI / 180;
 
-// Condensing the mark when the viewport has no rail for it (DESIGN.md).
+// Condensing the mark when the viewport has no rail for it (DESIGN.md). How big
+// it wants to be in the first place is the page's call — see main.js homeSize —
+// and that is where it scales with the room; this ladder only ever takes size
+// AWAY, when the room turns out to be full of words.
 const FIT_STEPS = [1, 0.8, 0.64];      // a step or two, never continuous
+const MARK_M = 34;                     // px of breathing room around the mark box
 const FIT_SHRINK = 0.04, FIT_GROW = 0.008;  // shrink over, grow under — two, so it can't breathe
 const FIT_EVERY = 0.3, FIT_DWELL = 1.1;     // s: re-decide rate, and dwell after a step
 const FIT_GIVEUP = 0.18, FIT_RETURN = 0.06; // even the smallest step stands on words: no mark
@@ -349,7 +353,7 @@ export class Flock {
   // clearly better, so near-ties never make the mark hop — `raw` skips it,
   // for the what-if solves that choose the size. ~60 candidates, microseconds.
   _solveHome(S, raw = false) {
-    const M = 34;                       // breathing room around the mark
+    const M = MARK_M;                   // breathing room around the mark
     const w = this.w, h = this.h, scroll = this.scroll;
     const bw = S.w + 2 * M, bh = S.h + 2 * M;
     const score = (cx, cy) => {
@@ -435,6 +439,12 @@ export class Flock {
       this._fitAt = this.time + FIT_DWELL; this._assign(false);
       return this.homeFit;
     }
+    // Growing has a second question shrinking never has to ask: does the bigger
+    // mark still fit on the canvas at all? `coverAt` only measures overlap with
+    // CONTENT, so an empty viewport would happily hand back 0 for a mark twice
+    // the size of the sky it has to live in.
+    const roomFor = (k) => req.w * FIT_STEPS[k] + 2 * MARK_M <= this.w
+                        && req.h * FIT_STEPS[k] + 2 * MARK_M <= this.h;
     const i = Math.max(0, FIT_STEPS.indexOf(this.homeFit));
     const cover = coverAt(i);
     let next = i;
@@ -447,7 +457,7 @@ export class Flock {
       // it — a markless flock that LOITERED would feel no field at all.
       else if (cover > FIT_GIVEUP) { this.homeOut = true; this._fitAt = this.time + FIT_DWELL; return 0; }
     }
-    else if (i > 0 && coverAt(i - 1) <= FIT_GROW) next = i - 1;
+    else if (i > 0 && roomFor(i - 1) && coverAt(i - 1) <= FIT_GROW) next = i - 1;
     if (next !== i) { this.homeFit = FIT_STEPS[next]; this._fitAt = this.time + FIT_DWELL; this._assign(false); }
     return this.homeFit;
   }
