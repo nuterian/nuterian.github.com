@@ -45,9 +45,20 @@ for (const [name, type] of [['webkit', webkit], ['firefox', firefox]]) {
       await page.emulateMedia({ colorScheme: scheme });
       await page.waitForTimeout(600); // let the .4s theme transition finish — axe must measure settled colours
       const res = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
-      res.violations.length
-        ? fail(`axe ${scheme}: ${res.violations.map(v => v.id).join(', ')}`)
-        : ok(`axe ${scheme}: 0 violations`);
+      if (res.violations.length) {
+        // The rule id alone is not a diagnosis. This failed once in CI, on Linux
+        // WebKit only, and said "color-contrast" and nothing else — no node, no
+        // colours, and it does not reproduce on a Mac. A gate that cannot be
+        // read from its own log costs more than it saves, so it prints the
+        // element and what the rule actually measured.
+        fail(`axe ${scheme}: ${res.violations.map(v => v.id).join(', ')}`);
+        for (const v of res.violations) for (const n of v.nodes.slice(0, 4)) {
+          console.log(`      ${v.id} · ${n.target.join(' ')}`);
+          console.log(`        ${n.html.replace(/\s+/g, ' ').slice(0, 110)}`);
+          const why = [...(n.any || []), ...(n.all || [])].map(c => c.message).join(' | ');
+          if (why) console.log(`        ${why.replace(/\s+/g, ' ').slice(0, 220)}`);
+        }
+      } else ok(`axe ${scheme}: 0 violations`);
     }
     await page.emulateMedia({ colorScheme: 'light' }); await page.waitForTimeout(600);
 
