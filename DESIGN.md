@@ -966,7 +966,14 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
     other. A simulation that fails to load must not hide the still that replaces it.
 - Everything is behind feature detection: no Worker/OffscreenCanvas → main thread;
   no View Transitions → plain; no `<dialog>` → `:target`; no script → still.
-- **All four gates run in CI**, in three jobs. `check.mjs` was the only one that did, which
+- **All four gates run in CI**, in three jobs. The WebKit/Firefox job retries **once, and only
+  on a crash**: WebKit on the runner occasionally dies mid-run with "Target page, context or
+  browser has been closed", which is a browser process death rather than a failed assertion —
+  seen once, green on a re-run with no code change. The retry greps for exactly that signature.
+  Anything else — an axe violation, a broken sheet, a dead flock — fails on the first run and
+  is never retried, because a gate that retries until it passes stops being believed. If the
+  browser dies twice, that is the news and the job fails. All three branches were exercised
+  before it shipped: violation → fails at once, crash → retries, crash twice → fails. `check.mjs` was the only one that did, which
   left `flight.mjs`, `crowd.mjs` and `engines.mjs` — the three that guard how the flock flies,
   whether it jams, and whether any of this works outside Chromium — running only when someone
   remembered. They protect the least screenshot-visible behaviour on the site, and most of
