@@ -947,6 +947,18 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   scrolled); archive screenshots are cached as they are seen; the cache version exists to
   *drop* things, not to update them — updates flow through on their own. Offline, the
   console says so: `flock offline — everything you see was already here.`
+- **The dev server sends the headers production actually sends.** It claimed to behave like
+  GitHub Pages and did not: every non-HTML file went out `public, max-age=31536000, immutable`,
+  where Pages sends `max-age=600` with an ETag and a Last-Modified on *everything*, HTML
+  included — measured against jugalm.com, not assumed. `immutable` means never revalidate, so
+  an edited stylesheet never arrived on any number of reloads, **including hard ones**, while
+  index.html updated around it; and the worker's own revalidating fetch was answered from the
+  same poisoned cache. It cost an afternoon, chased first as a layout bug and then as a
+  service-worker bug. It now serves 600 s with a Pages-shaped `"<mtime>-<size>"` ETag and
+  answers conditional requests with a 304. Measured after: a normal reload still shows the old
+  file, because 600 s is genuinely fresh — but a **hard reload shows the new one**, which
+  `immutable` refused. That is the difference between a cache and a trap. `--no-cache` remains
+  for continuous editing.
 - **The screenshot is handed to the worker once the worker exists.** A sheet opened by a deep
   link on a first visit is the one thing it never sees: it registers on `load` and starts
   controlling the page after that, so the `<img>` has already been fetched around it. Whether
