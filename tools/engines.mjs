@@ -41,10 +41,22 @@ for (const [name, type] of [['webkit', webkit], ['firefox', firefox]]) {
     if (thirdParty.length) fail(`third-party requests: ${thirdParty.join(', ')}`);
 
     // --- axe, light and dark, on the engine's own rendering ---------------
+    let stillStyle;
     for (const scheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: scheme });
-      await page.waitForTimeout(600); // let the .4s theme transition finish — axe must measure settled colours
+      // Switching the scheme on a live page starts the .4s theme fade, and axe
+      // walks the document over time — so on a slow runner it sampled different
+      // elements at different points in it. That is exactly how this gate failed
+      // in CI: an h1 measured at the light theme's #55544f and a paragraph at the
+      // dark theme's #e9e8e3, both against the same #9c9c9b half-way background,
+      // for a contrast "violation" that exists in no frame anyone can stop on.
+      // Waiting longer only makes it rarer. axe is asked about the settled
+      // design, so the transitions are switched off for the duration of the pass.
+      await page.addStyleTag({ content: '*,*::before,*::after{transition:none!important}' })
+        .then(h => (stillStyle = h));
+      await page.waitForTimeout(250);
       const res = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
+      await stillStyle.evaluate(el => el.remove());
       if (res.violations.length) {
         // The rule id alone is not a diagnosis. This failed once in CI, on Linux
         // WebKit only, and said "color-contrast" and nothing else — no node, no
