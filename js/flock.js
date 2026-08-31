@@ -510,6 +510,21 @@ export class Flock {
     if (!this.homeBox) this.homeBox = { ...this._homeGoal };
   }
 
+  // The clock already says where the light comes from and what colour it is. It
+  // may as well say what the birds are doing under it: at 3am the flock is
+  // quieter — fewer of them peel off for a lap, and the ones on the mark breathe
+  // slower between flaps. Scaled off DEFAULTS rather than off whatever `p` holds
+  // now, so it is idempotent and a `?params` poke is not compounded hourly.
+  //
+  // `restless` is scaled, never zeroed. A flock in which nobody is ever on the
+  // wing is a diagram, and DESIGN.md pins the opposite: the idle state is never
+  // 100% of the flock at once, at any hour.
+  setDaylight(d) {
+    const k = d > 1 ? 1 : d < 0 ? 0 : d;
+    this.p.restless = DEFAULTS.restless * (0.3 + 0.7 * k);
+    this.p.restEvery = DEFAULTS.restEvery * (1.55 - 0.55 * k);
+  }
+
   season(name) { // 'snow' | null
     this.mode = name === 'snow' ? 'snow' : 'home';
     if (this.mode !== 'home') this.setPerch(null);  // snow has no states to sit in
@@ -1250,6 +1265,7 @@ export class Runner {
       case 'count': f?.setCount(m.value); break;
       case 'params': if (f) Object.assign(f.p, m.params); break;
       case 'season': f?.season(m.season); break;
+      case 'daylight': f?.setDaylight(m.value); break;
       // Time you were not watching. The loop stops when the tab hides, so coming
       // back used to resume the exact frozen frame you left — the one thing a
       // flock should never do. The page says how long you were gone and the

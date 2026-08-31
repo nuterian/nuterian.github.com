@@ -30,6 +30,20 @@ fallback. The main thread only sends small messages (pointer, where home is).
   no two birds ever trace the same loop), before drifting home. A disrupted flock takes
   real time to reassemble, staggered bird by bird, and a settled flock always has a few
   birds out on a lap — the idle state is never 100 % of the flock at once. PERCH: below.
+- **The hour sets the flock's temperament, not just the light's colour.** The clock already
+  said where the light came from and what colour it was; at 3am it changed nothing about what
+  the birds were doing. Now the night is quieter: fewer of them peel off for a lap, and the
+  ones on the mark breathe slower between flaps. Measured over 90 simulated seconds — noon 9
+  roaming and 131 on the mark, 3am 5 and 135; the more felt of the two is the rest gap, 8.21 s
+  at night against 5.30 s by day, so the mark's shimmer slows by half again.
+  - **`restless` is scaled, never zeroed.** A flock in which nobody is ever on the wing is a
+    diagram, and this file pins the opposite: the idle state is never 100 % of the flock at
+    once, at any hour. At 3am five birds are still out.
+  - **It reads the daylight off the same clock the light does.** `lightAt` already computes
+    the moon's share of the hour (from `power`, not from a second table); daylight is its
+    complement, so the flock's mood and the page's colour cannot disagree about what time it
+    is, and `?hour=` still pins both at once. Scaled from `DEFAULTS` rather than from whatever
+    `p` currently holds, so the hourly tick is idempotent and cannot compound.
 - **Time you were not watching still happened.** The loop stops when the tab hides — it must,
   it is someone else's battery — so coming back resumed the exact frozen frame you left, which
   is the one thing a flock should never do. The page measures how long you were gone and the

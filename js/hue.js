@@ -93,6 +93,11 @@ export function lightAt(date = new Date(), dark = false, hue = hueAt(date), moon
     az: (a0 + (a1 - a0) * s) * Math.PI / 180,
     elev,
     moon,
+    // How much of this hour is daylight — 1 through the day, 0 once the sun is
+    // down, continuous across both handovers. It is just the complement of the
+    // lunar share above, so the flock's temperament and the light's colour are
+    // read off ONE clock and cannot disagree about what time it is.
+    day: 1 - lunar,
     // The phase is spent on the GLINT and nowhere else: a crescent is a smaller
     // specular source, so it flashes off a wing less. It is kept away from `glow`
     // deliberately — dimming moonlight photometrically is the mistake this file

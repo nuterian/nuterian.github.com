@@ -174,6 +174,10 @@ function pushStyle(extra) {
   const r = lightStyle(clock(), hue, pinnedMoon);
   light = r.light;
   post?.({ type: 'style', style: { ...r.style, ...extra } });
+  // Same clock, same beat: this runs at load, on the hourly tick and whenever
+  // the theme changes, so the flock's temperament drifts with the light rather
+  // than on a timer of its own. `?hour=` pins both at once.
+  post?.({ type: 'daylight', value: r.light.day });
 }
 
 function initMessage() {
