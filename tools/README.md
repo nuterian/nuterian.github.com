@@ -26,5 +26,7 @@ slow clock behind the night's glint (all `js/hue.js`), and Playwright's
 browser and no pinning: it drives the simulation directly, from the seed, and bakes the
 light at the same hour `og.mjs` shoots.
 
-Source fonts: the latin woff2 subsets served by Google Fonts for Geist and Geist Mono
-(`src-fonts/`, not committed — see `fonts.mjs` for the URLs).
+Source fonts: the `[wght]` variable webfonts from Vercel's Geist release
+(github.com/vercel/geist-font, v1.7.2), as `src-fonts/*-variable.woff2` — not committed. Not
+the Google Fonts subsets: their latin range has no `→ ← ↗` and none of the stylistic sets, which
+is how every arrow on the page came to render in Menlo (see `fonts.mjs`).

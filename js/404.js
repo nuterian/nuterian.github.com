@@ -4,7 +4,7 @@
  */
 import { Runner, textPoints } from './flock.js';
 import { hueAt } from './hue.js';
-import { setTheme, nextTheme, lightStyle } from './theme.js';
+import { setTheme, nextTheme, lightStyle, keepViewportHeight } from './theme.js';
 import { count } from './count.js';
 
 const root = document.documentElement;
@@ -13,6 +13,8 @@ const hue = hueAt();
 root.style.setProperty('--hue', hue.toFixed(1));
 // The same clock, the same light as the home page — one copy, in theme.js.
 const style = () => ({ type: 'style', style: lightStyle(new Date(), hue).style });
+
+keepViewportHeight();
 
 const canvas = document.getElementById('flock');
 const runner = new Runner(canvas);

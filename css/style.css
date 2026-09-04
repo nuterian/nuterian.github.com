@@ -30,6 +30,11 @@
 }
 
 @property --hue { syntax: '<number>'; inherits: true; initial-value: 88; }
+/* Registered as a colour so it can be TRANSITIONED: on a theme switch the body
+ * crossfades over .4s while the wash, a light-dark() inside a gradient, used to
+ * be at its new colour 40 ms in (measured). The gradient re-rasterises for the
+ * .4s of a keypress, not per frame — and it already did for the hue's 2 s drift. */
+@property --wash { syntax: '<color>'; inherits: true; initial-value: transparent; }
 
 :root {
   /* One palette, written once. Every token names its light value and its dark
@@ -98,7 +103,8 @@
  * opened by sweeping past every hue this palette rejects. So the transition is
  * switched on only once the first real hue is in place (main.js, one frame
  * later): arriving in a colour, rather than tuning into it. */
-:root.hue-live { transition: --hue 2s linear; }
+:root { transition: --wash .4s var(--ease-in-out); }
+:root.hue-live { transition: --hue 2s linear, --wash .4s var(--ease-in-out); }
 /* The manual theme switch. Nothing to restate — the scheme is the palette.
  * Except --shot-filter, which is the one token light-dark() can't carry: it
  * isn't a colour, `filter` wants a keyword, and CSS has no
@@ -152,7 +158,13 @@ body {
   background: var(--bg);
   color: var(--fg);
   font: 400 1rem/1.5 var(--sans);
-  font-feature-settings: 'ss01', 'cv11';    /* Geist: single-storey a, open digits */
+  /* No stylistic sets. A line here once asked for `ss01` and `cv11` ("single-storey
+   * a, open digits") and never got them: the Google Fonts files the subset came
+   * from carried no such features, so the page has always worn Geist's default a
+   * and digits — and that is the face every screenshot and og.png were approved
+   * in. Vercel's own build does have the sets (ss02 is the single-storey a, ss09
+   * the slashed zero; cv11 does not exist), so the look is a one-token choice
+   * now, made on purpose rather than by a subsetter. See tools/fonts.mjs. */
   -webkit-font-smoothing: antialiased;
   hanging-punctuation: first last;
   overflow-x: clip;
@@ -163,12 +175,15 @@ body {
 
 a { color: inherit; text-decoration-color: transparent; text-underline-offset: .18em; text-decoration-thickness: 1px; transition: text-decoration-color .3s var(--ease-out), color .3s var(--ease-out); }
 a:hover, a:focus-visible { text-decoration: underline; text-decoration-color: var(--accent); color: var(--accent); }
-/* With a pointer and script, the flock draws the underline first (main.js traces
- * it); the CSS one fades in just behind them, as if they left it there. */
-@media (hover: hover) and (pointer: fine) {
-  .js a:hover:not(:focus-visible) { transition: color .3s var(--ease-out), text-decoration-color .5s var(--ease-out) .7s; }
-}
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+/* Focus that arrived by script, after a pointer. WebKit — Safari on the desk and
+ * on the phone — draws :focus-visible on a focus() call whatever the hand that
+ * caused it, so a sheet closed with the mouse or a tap handed its row back ringed
+ * and nudged, as if a key had been pressed (Chromium does not; both measured).
+ * main.js marks that hand-back `quiet`: the focus itself stays — it is how a
+ * screen reader finds its way back — and the mark leaves on the next keystroke
+ * or the moment the row loses focus. */
+.quiet:focus-visible { outline: none; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 figure { margin: 0; }
 img, svg { display: block; max-width: 100%; height: auto; }
@@ -206,7 +221,7 @@ img, svg { display: block; max-width: 100%; height: auto; }
 /* At the first and last project there is nowhere to step. The buttons were
  * already `disabled` and did nothing; they just didn't look it, so the only
  * feedback for pressing one was silence. They fade instead of vanishing —
- * where you are in a run of six is part of what the pair tells you. */
+ * where you are in a run of seven is part of what the pair tells you. */
 .sheet-bar button:disabled { opacity: .3; cursor: default; }
 
 .mono { font-family: var(--mono); font-feature-settings: 'tnum'; font-size: .8125rem; letter-spacing: .01em; }
@@ -366,7 +381,7 @@ h1 {
 /* As you scroll away, the hero text recedes; the flock doesn't.
  *
  * The range is a PERCENTAGE of the scrollable distance, not a vh figure. This
- * page is short — a 100dvh hero over an archive of six — so on a tall window
+ * page is short — a 100dvh hero over an archive of seven — so on a tall window
  * the whole document scrolls less than one viewport height, and the hero can
  * never leave the screen at all. Keyed to `70vh` the fade then never finished:
  * at 1400px tall it stalled at opacity .31 with the github/linkedin/archive
@@ -430,15 +445,15 @@ h2 { font-size: 1rem; font-weight: 500; margin: 0; letter-spacing: -0.01em; }
  * to the right-hand edge and stay put (which is precisely what padding-left
  * did — the 1fr column absorbed the shift, so only the first two moved). */
 .row .num, .row .name, .row .medium, .row .arrow { transition: transform var(--t-nudge), color var(--t-tint); }
-.row:hover .num, .row:focus-visible .num,
-.row:hover .name, .row:focus-visible .name { transform: translateX(.5rem); }
-.row:hover .name, .row:focus-visible .name { color: var(--accent); }
-.row:hover .arrow, .row:focus-visible .arrow { transform: translateX(4px); color: var(--accent); }
+.row:hover .num, .row:focus-visible:not(.quiet) .num,
+.row:hover .name, .row:focus-visible:not(.quiet) .name { transform: translateX(.5rem); }
+.row:hover .name, .row:focus-visible:not(.quiet) .name { color: var(--accent); }
+.row:hover .arrow, .row:focus-visible:not(.quiet) .arrow { transform: translateX(4px); color: var(--accent); }
 @media (max-width: 30rem) {
   .row { grid-template-columns: 1.75rem 1fr 1.25rem; }
   .row .medium { grid-column: 2; grid-row: 2; margin-top: -.35rem; }
   /* Stacked under the name in the same column, so here it travels with it. */
-  .row:hover .medium, .row:focus-visible .medium { transform: translateX(.5rem); }
+  .row:hover .medium, .row:focus-visible:not(.quiet) .medium { transform: translateX(.5rem); }
 }
 
 /* --- Sheets (full-length screenshots) ----------------------------------- */
@@ -641,7 +656,7 @@ html:not(.js) .site-footer .theme { display: none; }
    * density the type wants, which is also what makes it one sheet. */
   .row { min-height: 0; padding: .34rem 0; break-inside: avoid; }
   .hero-links a { min-height: 0; line-height: 1.5; padding: 0; }
-  /* The archive prints as the list it is, not as nine full-length screenshots.
+  /* The archive prints as the list it is, not as ten full-length screenshots.
    * Unless one is actually open — then that is the thing you asked to print. */
   .sheet { display: none; }
   dialog#sheet[open] .sheet { display: block; }

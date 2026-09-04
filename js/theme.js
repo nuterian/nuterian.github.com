@@ -20,7 +20,39 @@ export const isDark = () =>
 // same reason), and the switch itself must not die on the memo.
 export function setTheme(mode) { // 'system' | 'dark' | 'light'
   if (mode === 'system') delete root.dataset.theme; else root.dataset.theme = mode;
+  syncThemeColor(mode);
   try { mode === 'system' ? localStorage.removeItem('theme') : localStorage.setItem('theme', mode); } catch {}
+}
+
+// The browser's own chrome — Safari's tab bar, a phone's status bar — takes its
+// colour from `theme-color`, and the two tags in the head are keyed to the SYSTEM
+// scheme only: after a manual switch the page went dark and the bar around it
+// stayed light. The colours stay in the head, each written once; this only says
+// which applies — the chosen theme's, on both tags, or each tag's own once the
+// system is back in charge. Run once at load too, because the pre-paint script
+// may already have restored a choice.
+const metas = [...document.querySelectorAll('meta[name="theme-color"]')];
+const own = new Map(metas.map(m => [m, m.content]));
+function syncThemeColor(mode) {
+  const pick = mode === 'system' ? null : metas.find(m => (m.getAttribute('media') || '').includes(mode));
+  for (const m of metas) m.content = own.get(pick || m);
+}
+syncThemeColor(root.dataset.theme || 'system');
+
+// The visible viewport. The inline head script sets --vh before first paint; this
+// keeps it true as the browser's chrome comes and goes (see .hero in style.css for
+// why neither svh nor dvh can do the job). Pinch-zoom is ignored on purpose:
+// zoomed in, visualViewport.height is the slice being magnified, and honouring it
+// would collapse the hero the moment someone zoomed a screenshot. It lives here
+// because both pages have the same bottom-anchored hero, and the 404 had been
+// left on the svh guess the home page was cured of.
+export function keepViewportHeight() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  let raf = 0;
+  const apply = () => { raf = 0; if (vv.scale <= 1.01) root.style.setProperty('--vh', vv.height + 'px'); };
+  vv.addEventListener('resize', () => { if (!raf) raf = requestAnimationFrame(apply); }, { passive: true });
+  apply();
 }
 
 export const nextTheme = () => {

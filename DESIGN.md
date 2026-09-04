@@ -454,10 +454,29 @@ still one snap, when main.js first runs and replaces the static default — the 
 duplicating the hour keyframes into the inline head script, and a duplicated table is a
 table that drifts.
 
+**And the number stays continuous after that.** `hueAt` answers on a wheel, 0–360, and the
+same 2 s transition runs on every later change, so twice a day the wheel's seam was the same
+tour: at **05:48 local** the reading steps from 359.1 to 0.1, and the transition took the
+number the long way round, 359° in two seconds. The value the page holds is therefore
+*unwrapped* — each reading takes whichever of h, h+360, h−360 is nearest the last, and OKLCH
+takes any angle (`?hour=5.8` sits at 360.1, not 0.1; `flock.hue` still reports it wrapped).
+A tab that slept through a closed lid had the same problem in a second form: its first tick
+after waking interpolated straight across whatever the hours had moved — 21:00 to 09:00
+passes through hue 199, cyan. The transition is for a minute's drift, never more than ~2°, so
+any step past `HUE_STEP` (10°) lands with the transition off, the arrival rule the first paint
+already had, and the clock is re-read the moment the tab returns rather than at the next
+minute. Both pinned with a faked clock: 359.1 → 360.1 → 361.2 across the seam with `hue-live`
+never dropped, and 09:00 → 03:00 landing at −105 (255) in one step with it dropped and
+restored.
+
 Theme follows the system. `t` or the footer's theme control cycles system → dark → light
 (persisted; applied before first paint by an inline script, so no flash). The canvas colour
 is computed in JS, not read from CSS (`js/hue.js` mirrors `--flock`), so `light-dark()` in
-the stylesheet never has to be parsed by script.
+the stylesheet never has to be parsed by script. The browser's own chrome follows the switch
+too: the two `theme-color` tags in the head are keyed to the *system* scheme, so after a manual
+switch the page went dark and Safari's tab bar, or a phone's status bar, stayed light.
+`theme.js` now points both tags at the chosen theme's colour and hands each its own back
+under Auto. The colours stay in the head, written once.
 
 ### Light
 
@@ -539,6 +558,13 @@ properties: the gradient rasterises once and is never repainted. A gradient that
 its own stops would repaint a full-viewport layer for 45 s at a stretch, which is the one
 thing this page has spent its whole budget avoiding. The amplitude is a few percent.
 
+It does repaint for a theme switch, and that is on purpose. The body crossfades over 0.4 s,
+and the wash — a `light-dark()` inside a gradient — used to be at its new colour 40 ms in,
+measured: the one thing on the page that snapped while everything around it eased. `--wash`
+is now a registered `<color>` (`@property`) with the same 0.4 s transition on `:root`, so the
+gradient re-rasterises for the 0.4 s of a keypress, once, which it already did for the hue's
+2 s drift.
+
 The breathe is wrapped in `@media (prefers-reduced-motion: no-preference)`, **not** left to
 the global reduced-motion override at the foot of the stylesheet. That override sets
 `animation-duration: .01ms`, which does not stop an infinite animation — it restarts it
@@ -604,19 +630,38 @@ and `og.png` is byte-identical run to run. `?hue=` still pins the accent on its 
 
 ## Type
 
-Geist and Geist Mono, self-hosted, subset twice over by `tools/fonts.mjs`: to ASCII +
-typographic punctuation, and to the weights the page actually sets. The CSS asks for exactly
-three — 400 (body), 450 (`.row .name`), 500 (the name and the `h2`s) — so the `wght` axis
-ships clipped to **400–500** rather than the variable font's native 100–900, in the subsetter
-(`variationAxes`) and in both `@font-face` blocks. A variable axis pays for its whole range in
-delta data whether or not anyone wears the ends, and the ends here were a third of the
-payload: 35.0 KB → 22.4 KB for the pair, the single largest line item on the page. Nothing
-rendered moved — the instances at 400/450/500 are the same outlines, differing only in
-antialiasing coverage at glyph edges. Weights outside the range would now clamp to the
-nearest end, so **the range and the CSS have to be changed together**. A metric-compatible fallback face
-(`size-adjust`, `ascent-override`) keeps CLS at 0 while they load. Mono only for metadata:
-years, captions, links, footer. `tnum` for numbers; `hanging-punctuation`;
-`text-wrap: balance` on the name, `pretty` on the line; the *J* is optically outdented.
+Geist and Geist Mono, self-hosted, subset three times over by `tools/fonts.mjs`: to ASCII +
+typographic punctuation, to the weights the page actually sets, and to the layout features
+it actually names. The CSS asks for exactly three weights — 400 (body), 450 (`.row .name`),
+500 (the name and the `h2`s) — so the `wght` axis ships clipped to **400–500** rather than the
+variable font's native 100–900, in the subsetter and in both `@font-face` blocks. A variable
+axis pays for its whole range in delta data whether or not anyone wears the ends, and the ends
+here were a third of the payload: 35.0 KB → 22.4 KB for the pair, the single largest line
+item on the page. Nothing rendered moved — the instances at 400/450/500 are the same outlines,
+differing only in antialiasing coverage at glyph edges. Weights outside the range would now
+clamp to the nearest end, so **the range and the CSS have to be changed together**. A
+metric-compatible fallback face (`size-adjust`, `ascent-override`) keeps CLS at 0 while they
+load. Mono only for metadata: years, captions, links, footer. `tnum` for numbers;
+`hanging-punctuation`; `text-wrap: balance` on the name, `pretty` on the line; the *J* is
+optically outdented.
+
+**The source is Vercel's release, not Google Fonts.** The subset was first cut from the
+`latin` files Google serves, and two things were quietly missing from them. Google's latin
+range carries U+2191 and U+2193 (↑ ↓) but not U+2190, U+2192 or U+2197 — so every `→` `←` `↗`
+on the page, the row arrows, the sheet's steppers, the dateline's own arrow, rendered in
+**Menlo** while the `↓` beside them was Geist. Asked the renderer, not the stylesheet:
+`CSS.getPlatformFontsForNode` reported Menlo for all of them and Geist Mono for the `×` and the
+digits. And the stylesheet had asked for `ss01` and `cv11` ("single-storey a, open digits")
+since day one, and the files had no such features, so the declaration was a no-op that nobody
+could see failing. It is gone: the page has always worn Geist's default a and digits, every
+screenshot and og.png was approved in that face, and Vercel's build does have the sets (ss02 is
+the single-storey a, ss09 the slashed zero; cv11 does not exist), so it is a one-token choice
+now, made on purpose or not at all. `fonts.mjs` now drives harfbuzz directly, because the
+third cut needs it: `subset-font` keeps every layout feature in the font and layout closure
+then keeps every alternate any of them could reach — from Vercel's files that was 62 extra
+glyphs in the sans and 125 in the mono, the mono's GSUB alone going 322 → 10 488 bytes, for
+sets no rule here ever sets. With the features named, the pair with every arrow in it is
+**22.9 KB → 20.7 KB**, smaller than the pair without them.
 
 ## Layout
 
@@ -640,7 +685,9 @@ flock owns the rest; the hero text recedes on scroll (scroll-driven animation).
   no-script floor: wrong by 46 px, but never hiding anything. Verified at 718 / 724 / 844 px
   of visible height — hero matches all three, links clear the bottom by the full gutter, the
   archive never peeks. The sheet keeps `dvh`: nothing in it is bottom-anchored and it
-  scrolls internally, so an over-reported height hides nothing you cannot reach.
+  scrolls internally, so an over-reported height hides nothing you cannot reach. The 404 has
+  the same bottom-anchored hero and had been left on the `svh` guess; the pre-paint line is in
+  its head now and the follow-up lives once, in `theme.js`, for both pages.
   **Two things about that clearance were wrong.** The links carried the UA's own
   `ul { margin-block: 1em }` underneath a rule that set only `margin-top`, so the hero cleared
   the bottom by the gutter *plus* an accidental 13 px nobody chose, and the whole block sat
@@ -727,7 +774,7 @@ its duration so the two never multiply.
 Only `.row[data-slug]` is wired to the dialogs — the Making row is a link out, and the old
 `$$('.row')` would have caught it, cancelled its click and opened a sheet for `undefined`. The hero text
 recedes on a scroll-driven animation whose range is a **percentage of the scrollable
-distance**, not a `vh` figure: this page is short — one `100dvh` hero over an archive of six
+distance**, not a `vh` figure: this page is short — one `100dvh` hero over an archive of seven
 — so on a tall window the whole document scrolls less than one viewport height and the hero
 never leaves the screen. Keyed to `70vh` the fade could not finish (at 1400 px tall it
 stalled at opacity .31, leaving the github/linkedin/archive links sitting over the archive
@@ -846,6 +893,15 @@ Each project's full-length 960 px screenshot (AVIF → WebP → the original PNG
   container, not a control. A deep link (`/#unlistr`) opens the sheet while the page is
   still loading and the following `load` hands focus back to `<body>`, leaving a screen
   reader outside an open modal, so the focus is re-asserted once after the page settles.
+  - **Closing hands focus back quietly when a pointer did the closing.** WebKit — Safari on
+    the desk and on the phone — draws `:focus-visible` on a script's `focus()` whatever hand
+    caused it, so a sheet closed with the mouse or a tap returned its row ringed, nudged and
+    in accent, as if a key had been pressed; Chromium does not (both measured). The focus
+    itself is right and stays — it is how a screen reader finds its way back. `main.js` keeps
+    one bit, which hand made the last input, and after a pointer close marks the row `quiet`:
+    the keyboard styling is withheld until a key is actually pressed or the row loses focus.
+    Measured in WebKit: mouse open, mouse close → focused, no ring; mouse open, Esc → ring;
+    Tab afterwards clears the mark and moves on.
 - **The bar clears the top of a phone.** Full-bleed (`--sheet-top: 0`) the bar was landing
   hard against the top edge and, on a notched device, partly underneath it. The bar's height
   is `--bar` and the dead space above its controls is `--bar-extra`, 0 on the desktop and
@@ -857,7 +913,7 @@ Each project's full-length 960 px screenshot (AVIF → WebP → the original PNG
 - **The steppers look as dead as they are.** At the first and last project ← and → were
   already `disabled` and did nothing, but looked identical to live ones, so the only
   feedback for pressing one was silence. They now fade to 0.3 rather than disappearing:
-  where you are in a run of six is part of what the pair tells you.
+  where you are in a run of seven is part of what the pair tells you.
 - A vertical ruler on wide screens reads “960 px — the width of the web in 2013”.
 - **In dark theme the screenshots are dimmed** (`filter: brightness(.88)`). They are 2013
   pages: full-bleed white. At full brightness on a 14 %-lightness sheet, opening one at
@@ -928,7 +984,9 @@ to everyone who never lands there, which is the shape of every reward on this si
   the season, the phase of the moon and how long you have been away — and it would have gone
   quietly wrong on 1 January. The second `<time>` now comes off the clock, with the typed value
   left in the markup as the no-script floor, the same arrangement as `--vh`. Verified by moving
-  a browser's clock to 2031.
+  a browser's clock to 2031. The first cut put the `id` on the *Making* header's "2026 →"
+  instead — the year that section started, which must not move — while the footer stayed
+  typed; it is on the footer's second `<time>` now.
 - **`prefers-contrast: more` is answered.** Hairlines at 14 % alpha and metadata greys ~13 %
   over AA are deliberate, and are exactly what someone setting this preference is asking us not
   to do. Two tokens move — `--hair` to 55 %, `--muted` from 48 % to 32 % lightness — and because
@@ -1014,7 +1072,7 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   this file is a catalogue of exactly those things regressing. WebKit and Firefox get their
   own job because they take far longer to download than to run, and nothing should wait on it.
 - **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; Lighthouse 100/100/100/100 on
-  desktop and mobile; first load < 100 KB gzip (currently 80.5 KB); no console errors;
+  desktop and mobile; first load < 100 KB gzip (currently 86.7 KB); no console errors;
   reduced motion is actually still; no-JS still and `:target` work; the behaviours that
   shipped as screenshots, pinned (landscape stand-down, the thinned phone grid, the theme
   switch under blocked storage — all on `?still&mainthread`, stepping the sim by hand so
@@ -1084,7 +1142,8 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   applied and remembered, how the hour's light lands on the page and the flock. main.js
   and 404.js each carried a private copy and the copies drifted — a missing modifier
   guard on one page, unconverted tap coordinates on the other. Both bugs died with the
-  duplication.
+  duplication. The visible-viewport follow-up (`--vh`) and the `theme-color` sync live there
+  too, for the same reason: the 404 had neither, because it had its own copy of nothing.
 - **More instruments, not part of the gate**: `tools/fps.mjs` — the flock's achieved frame
   rate across worker/main-thread and canvas configurations (the metric that matters — see
   *What actually costs*); `tools/bench.html` — per-operation microbench with GPU sync;

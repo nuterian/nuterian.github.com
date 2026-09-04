@@ -16,5 +16,9 @@
     "playwright": "^1.48.0",
     "sharp": "^0.33.5",
     "subset-font": "^2.3.0"
+  },
+  "dependencies": {
+    "fontverter": "^2.0.0",
+    "harfbuzzjs": "^0.10.3"
   }
 }

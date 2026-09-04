@@ -20,7 +20,7 @@
 // fails, so that one is fetched at the moment it is needed and not before.
 import { MARK, MARK_ASPECT, markSize } from './mark.js';
 import { hueAt } from './hue.js';
-import { setTheme as applyTheme, nextTheme, lightStyle } from './theme.js';
+import { setTheme as applyTheme, nextTheme, lightStyle, keepViewportHeight } from './theme.js';
 import { count } from './count.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -52,6 +52,15 @@ const homes = new Map(); // slug → where its .sheet lives when closed
 // same name, and seven identical rows in the analytics.
 const PAGE_TITLE = document.title;
 let opener = null, current = null; // the row that opened the sheet; the open slug
+// Which hand made the last input. WebKit — Safari, desk and phone — draws
+// :focus-visible on a script's focus() whatever caused it, so a sheet closed with
+// the mouse or a tap handed its row back ringed, nudged and in accent, as if a key
+// had been pressed (Chromium does not; both measured). The focus itself is right
+// and stays — it is how a screen reader finds its way back — only the keyboard's
+// styling is withheld, until a key is actually pressed or the row loses focus.
+let byKey = false;
+addEventListener('keydown', () => { byKey = true; document.activeElement?.classList.remove('quiet'); }, true);
+addEventListener('pointerdown', () => { byKey = false; }, true);
 
 /* ---------------------------------------------------------------------------
  * 1. Hue of the day, and where the light comes from (see hue.js)
@@ -69,7 +78,26 @@ function clock() {
 }
 let hue = params.has('hue') ? +params.get('hue') : hueAt(clock());
 let light; // the hour's light, kept for window.flock.light (set by pushStyle)
-function applyHue() { root.style.setProperty('--hue', hue.toFixed(1)); pushStyle(); }
+// The number the page holds is CONTINUOUS, and a jump in it is a step, not a tour.
+// hueAt() answers on a wheel, 0–360, but the stylesheet transitions --hue as a
+// number — so the minute the wheel wrapped (05:48 local, 359.1 to 0.1) the accent
+// swept the whole circle in two seconds, the long way, through every hue the
+// palette rejects. Each reading is therefore unwrapped onto the last: whichever of
+// h, h+360, h−360 is nearest, and OKLCH takes any angle. And a tab that slept
+// through a closed lid used to get its first reading as the same tour (21:00 to
+// 09:00 passes through cyan): the transition is for a minute's drift, never more
+// than ~2°, so anything past HUE_STEP lands with it off — the arrival rule the
+// first paint already had — and the clock is re-read the moment the tab returns
+// rather than at the next tick.
+const HUE_STEP = 10;
+const unwrap = (h, from) => from + ((h - from) % 360 + 540) % 360 - 180;
+function applyHue(next = hue) {
+  const jump = Math.abs(next - hue) > HUE_STEP;
+  hue = next;
+  if (jump) root.classList.remove('hue-live');
+  root.style.setProperty('--hue', hue.toFixed(1)); pushStyle();
+  if (jump) requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('hue-live')));
+}
 applyHue();
 // …and only now may the hue animate. The transition exists for the drift from
 // one hour to the next, a few degrees at a time; applied to the FIRST hue it
@@ -77,11 +105,8 @@ applyHue();
 // hues the palette does not contain (style.css, .hue-live). Two frames, because
 // the class must not land in the same style recalculation as the value.
 requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('hue-live')));
-setInterval(() => {
-  if (pinnedHour !== null) return;
-  if (!params.has('hue')) hue = hueAt(clock());
-  applyHue();
-}, 60_000);
+function tick() { if (pinnedHour === null && !params.has('hue')) applyHue(unwrap(hueAt(clock()), hue)); }
+setInterval(tick, 60_000);
 
 /* ---------------------------------------------------------------------------
  * Theme: follows the system; `t` or the footer dot cycles system → dark → light.
@@ -104,22 +129,9 @@ themeBtn.addEventListener('click', cycleTheme);
 labelTheme(root.dataset.theme || 'system');
 darkMQ.addEventListener('change', pushStyle);
 
-/* ---------------------------------------------------------------------------
- * The visible viewport. index.html sets --vh before first paint; this keeps it
- * true as the browser's chrome comes and goes. See .hero in style.css for why
- * neither svh nor dvh can do this job on its own.
- *
- * Pinch-zoom is deliberately ignored: zoomed in, visualViewport.height is the
- * slice of the page you are magnifying, not the window — honouring it would
- * collapse the hero the moment someone zoomed a screenshot in the archive.
- * ------------------------------------------------------------------------- */
-if (window.visualViewport) {
-  const vv = visualViewport;
-  let vhRaf = 0;
-  const applyVH = () => { vhRaf = 0; if (vv.scale <= 1.01) root.style.setProperty('--vh', vv.height + 'px'); };
-  vv.addEventListener('resize', () => { if (!vhRaf) vhRaf = requestAnimationFrame(applyVH); }, { passive: true });
-  applyVH();
-}
+// The visible viewport: index.html sets --vh before first paint, theme.js keeps it
+// true from here on (one copy — the 404 has the same hero).
+keepViewportHeight();
 
 /* ---------------------------------------------------------------------------
  * 2. The flock
@@ -282,6 +294,7 @@ document.addEventListener('visibilitychange', () => {
   hiddenAt = 0;
   if (away > 1) post({ type: 'catchup', seconds: away });
   post({ type: 'visible', value: true });
+  tick();   // the colour of the hour, now, not at the next minute
 });
 // The birds' sky is fixed and the page scrolls through it — one tiny message
 // per scrolled frame, and the worker does the subtraction so we read no layout
@@ -453,7 +466,7 @@ function openSheet(slug, { push = true } = {}) {
     root.classList.add('sheet-open');
     sheet.scrollTop = 0;
     current = slug;
-    // An opened sheet is its own view: which of the six people actually look
+    // An opened sheet is its own view: which of the seven people actually look
     // at is the only thing worth knowing about this page (see count.js).
     count(`/#${slug}`);
   };
@@ -480,7 +493,10 @@ function closeSheet({ back = true } = {}) {
   post({ type: 'tempo', value: 1 }); pushStyle({ alpha: 1 });
   if (back && history.state?.slug) history.back();
   else if (back) history.replaceState(null, '', '#archive');
-  opener?.focus({ preventScroll: true });
+  if (opener) {
+    opener.focus({ preventScroll: true });
+    if (!byKey) { opener.classList.add('quiet'); opener.addEventListener('blur', () => opener.classList.remove('quiet'), { once: true }); }
+  }
 }
 sheet.addEventListener('close', () => closeSheet()); // ESC (and any other native close)
 sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); }); // backdrop
@@ -623,7 +639,7 @@ window.flock = {
   perch: () => { perchOff(); perchNow(); },   // without the 45 s of sitting still
   tempo: v => post({ type: 'tempo', value: v }),
   get seed() { return seed; },
-  get hue() { return hue; },
+  get hue() { return (hue % 360 + 360) % 360; },
   set hue(v) { hue = +v; applyHue(); },
   get light() { return { ...light, az: light.az * 180 / Math.PI }; },
   snapshot() { return new Promise(r => { snapshotResolve = r; post({ type: 'snapshot' }); }); },
