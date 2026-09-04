@@ -110,6 +110,21 @@
   :root:not([data-theme='light']) { --shot-filter: var(--shot-filter-night); }
 }
 
+/* Asked for more contrast, the quiet things stop being quiet. The hairlines are
+ * 14 % alpha and the metadata greys sit ~13 % over AA — deliberate, and exactly
+ * what someone who set this preference is asking us not to do. Only the two
+ * tokens move; every other colour is already at full strength, and because they
+ * are tokens the change reaches the rules, the row numbers, the medium column,
+ * the footer and the sheet captions at once. This is the last of the four
+ * preferences the site had not answered — motion, data and scheme were already
+ * honoured, and forced-colors renders correctly with nothing to add. */
+@media (prefers-contrast: more) {
+  :root {
+    --hair:  light-dark(oklch(19% 0.01 95 / 0.55),  oklch(93% 0.006 95 / 0.55));
+    --muted: light-dark(oklch(32% 0.012 95),        oklch(84% 0.01 95));
+  }
+}
+
 /* --- Base ---------------------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; }
 /* overflow-x lives HERE, not only on body, so that body's own value stops
@@ -117,7 +132,11 @@
  * matters for the phone canvas below: absolutely positioned and 120px wider
  * than the screen, it would otherwise widen the document and make a phone
  * shrink-to-fit the whole page (measured: a 390px viewport reporting 450). */
-html { -webkit-text-size-adjust: 100%; overflow-x: clip; scrollbar-gutter: stable; }
+/* The hero's `archive ↓` bobs for 2.6 s inviting you down, and then the page
+ * used to teleport. It scrolls now. The reduced-motion block at the foot of this
+ * file already forces `auto !important`, so the one preference that must not get
+ * a 600 ms slide does not get one. */
+html { -webkit-text-size-adjust: 100%; overflow-x: clip; scrollbar-gutter: stable; scroll-behavior: smooth; }
 /* A modal sheet is modal: the page behind it must not scroll. <dialog> puts the
  * sheet in the top layer and inerts the rest, but it does NOT lock the
  * document — on a phone the archive kept scrolling away underneath the
@@ -492,6 +511,10 @@ dialog#sheet[open] { animation: sheet-in .45s var(--ease-out); }
   font-family: var(--mono); font-size: .8125rem; color: var(--muted);
 }
 .sheet-bar .title { color: var(--fg); margin-right: auto; }
+/* Where you are in the seven. The arrows dim at the ends, which says only that
+ * an edge exists, not how far off it is — and the archive numbers its rows, so
+ * the sheet may as well say which number you are looking at. */
+.sheet-bar .count { font-variant-numeric: tabular-nums; padding-right: .25rem; }
 dialog#sheet .sheet { margin-top: 1rem; }
 dialog#sheet .sheet .close { display: none; }
 
@@ -596,6 +619,19 @@ html:not(.js) .site-footer .theme { display: none; }
   .rows .row { animation: none; }
   .site-footer .arrow { opacity: 1; }
   .hero-links a[href^='http']::after { content: ' · ' attr(href); }
+  /* Making's rows lead somewhere real, and on paper a link is only as good as
+   * the address beside it. `attr()` can only read the element carrying the
+   * attribute, and the <a> is the only thing here with an href — so the address
+   * is the row's own ::after. It takes the column the arrow just vacated rather
+   * than a line of its own: set under the name it cost two lines, and two lines
+   * is exactly what tipped US Letter onto a second sheet. On the line, it costs
+   * nothing, and the card is one page again on both papers. */
+  #making .row { grid-template-columns: 2.25rem 1fr auto auto; }
+  #making .row::after {
+    content: 'jugalm.com' attr(href);
+    font-family: var(--mono); font-size: .6875rem; color: var(--muted);
+  }
+  .sheet-bar .count { display: none; }
   .archive, .site-footer { padding-left: 0; padding-right: 0; }
   .archive { padding-top: 4mm; padding-bottom: 0; }
   .archive header { margin-bottom: .5rem; }

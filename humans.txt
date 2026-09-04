@@ -15,4 +15,5 @@
   Counting: self-hosted Umami, cookieless, DNT-honouring — see js/count.js.
   Last major redesign: 2026. Previous: 2013 — preserved at /2013/.
   Rules of the flock: separation, alignment, cohesion, you.
+  There is a fifth, and it is patience. Put the mouse down and wait.
   Offline: yes. The flock does not need the internet.

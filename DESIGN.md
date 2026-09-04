@@ -913,6 +913,36 @@ to everyone who never lands there, which is the shape of every reward on this si
   that many birds can hold — the same ~1.5 points per bird the home page reads at, and the
   same reasoning as the phone halving the mark's grid rather than shrinking the mark.
 
+### Six small things
+
+- **An open sheet borrows the tab.** `document.title` never moved, so seven sheets shared one
+  title: seven history entries, seven bookmarks and seven lines in the back button's dropdown
+  all reading "Jugal Manjeshwar", and seven identical rows in the analytics. It is now
+  "Unlistr — Jugal Manjeshwar" while open, and handed back on close.
+- **`archive ↓` scrolls rather than teleports.** The arrow bobs for 2.6 s inviting you down and
+  the page used to jump. `scroll-behavior: smooth` on `html` — and the reduced-motion block
+  already forced `auto !important`, so the one preference that must not get a slide never had
+  to be remembered. It also means the walk down is the many-events case whose path-dependence
+  is fixed above: the mark glides alongside and settles where the page implies.
+- **The dateline reads its own year.** "2013 → 2026" was typed, on a site that knows the hour,
+  the season, the phase of the moon and how long you have been away — and it would have gone
+  quietly wrong on 1 January. The second `<time>` now comes off the clock, with the typed value
+  left in the markup as the no-script floor, the same arrangement as `--vh`. Verified by moving
+  a browser's clock to 2031.
+- **`prefers-contrast: more` is answered.** Hairlines at 14 % alpha and metadata greys ~13 %
+  over AA are deliberate, and are exactly what someone setting this preference is asking us not
+  to do. Two tokens move — `--hair` to 55 %, `--muted` from 48 % to 32 % lightness — and because
+  they are tokens it reaches the rules, the row numbers, the medium column, the footer and the
+  captions at once. That is the last of the preferences the site had not answered; motion, data
+  and scheme were already honoured, and **forced-colors was measured and needs nothing**.
+- **The sheet says where you are in the run.** The arrows dim at the ends, which says only that
+  an edge exists, not how far off it is. `3 / 7`, tabular, in the bar's own mono, hidden in
+  print where the page number is not the point.
+- **Two winks.** `humans.txt` now names a fifth rule of the flock — patience — for whoever finds
+  the perch. And the print card carries each Making row's address beside it, in the column the
+  arrow vacates. It was set *under* the name first: two extra lines, which tipped US Letter onto
+  a second sheet. On the line it costs no height, and the card is one page on both papers again.
+
 ## Accessibility
 
 WCAG 2.2 AA throughout, verified by axe on light/dark × desktop/phone × home/sheet/404.

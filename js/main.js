@@ -46,6 +46,11 @@ const sheetTitle = $('#sheet-title');
 const rows = $$('.row[data-slug]');   // archive rows only — Making's row is a link out
 const slugs = rows.map(r => r.dataset.slug);
 const homes = new Map(); // slug → where its .sheet lives when closed
+// The page's own title, kept so an open sheet can borrow the tab and give it
+// back. Seven sheets used to share one title: seven history entries, seven
+// bookmarks and seven lines in the back button's dropdown, all reading the
+// same name, and seven identical rows in the analytics.
+const PAGE_TITLE = document.title;
 let opener = null, current = null; // the row that opened the sheet; the open slug
 
 /* ---------------------------------------------------------------------------
@@ -430,6 +435,7 @@ function openSheet(slug, { push = true } = {}) {
     sheet.append(node);
     sheetTitle.textContent = $(`.row[data-slug="${slug}"] .name`).textContent;
     sheet.setAttribute('aria-label', sheetTitle.textContent);
+    document.title = `${sheetTitle.textContent} — ${PAGE_TITLE}`;
     if (!sheet.open) {
       sheet.showModal();
       // showModal() focuses the first focusable thing it finds, which is the ←
@@ -458,6 +464,7 @@ function openSheet(slug, { push = true } = {}) {
   post({ type: 'tempo', value: 0.35 }); pushStyle({ alpha: 0.8 });
   $('#sheet-prev').disabled = slugs.indexOf(slug) === 0;
   $('#sheet-next').disabled = slugs.indexOf(slug) === slugs.length - 1;
+  $('#sheet-count').textContent = `${slugs.indexOf(slug) + 1} / ${slugs.length}`;
 }
 function putBack(slug) {
   const node = document.getElementById(slug), home = homes.get(slug);
@@ -469,6 +476,7 @@ function closeSheet({ back = true } = {}) {
   if (sheet.open) sheet.close();
   putBack(slug);
   root.classList.remove('sheet-open');
+  document.title = PAGE_TITLE;
   post({ type: 'tempo', value: 1 }); pushStyle({ alpha: 1 });
   if (back && history.state?.slug) history.back();
   else if (back) history.replaceState(null, '', '#archive');
@@ -559,6 +567,15 @@ if (arrow && 'IntersectionObserver' in window) {
   }, { threshold: 1 });
   io.observe(arrow);
 } else arrow?.classList.add('drawn');
+
+// The dateline's second year, from the clock rather than from whoever last
+// edited the HTML. A site that knows the hour, the season and the phase of the
+// moon should not need a person to tell it the year. The typed value stays in
+// the markup as the no-script floor — same arrangement as `--vh`.
+{
+  const y = new Date().getFullYear(), el = $('#year');
+  if (el && +el.dateTime !== y) { el.dateTime = y; el.textContent = y; }
+}
 
 // The service worker: repeat visits paint from disk, and the whole site —
 // flock included — works with no network at all (see sw.js). Registered
