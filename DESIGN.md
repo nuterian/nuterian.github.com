@@ -390,7 +390,7 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    GPUs, most VMs, headless), the GL path managed 23 draws/s against a 60 Hz rAF while
    the Canvas 2D fallback keeps pace — on those machines 2D is not the degradation, it
    is the fix. Real GPUs are unaffected. The context also declines the buffers it never
-   uses (`depth: false, stencil: false`) and asks for `desynchronized`, and the canvas
+   uses (`depth: false, stencil: false`) — it asked for `desynchronized` too, until item 10 — and the canvas
    bleed shrank 90 → 60 px — the bleed is off-screen paint the compositor pays for at
    full price, ~12 % of the layer at 1440×900.
 6. **The fixed timestep beating against vsync.** The simulation ticks at exactly 60 Hz and
@@ -433,6 +433,14 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    ETags Chrome stores, checked with curl) at eleven header-only round trips plus the three
    files the page never loaded: **100 KB → 11 KB** over the wire, measured against a local
    server with GitHub Pages' headers. It is also strictly more current than `reload` was.
+10. **`desynchronized` hid the page on Android.** Both contexts asked for the low-latency hint,
+   for a frame less of latency that an ambient animation never needed. On Android Chrome that
+   path puts the canvas on a hardware overlay, and a translucent overlay composited OPAQUE over
+   everything beneath it: the hero painted, the flock's first frame landed on top, and the name
+   was gone — the canvas sits above the content by design (*The canvas*, above). iOS ignores the
+   hint, which is why it never showed there, and neither does Playwright's Chromium on macOS, so
+   the device was the only instrument. The hint is gone from both contexts; nothing measurable
+   was lost, because what this page pays for is the layer's area, not its latency.
 
 Instruments in `tools/`: `fps.mjs` (achieved flock frame rate — the number that matters;
 main-thread rAF deltas are vsync-pinned and cannot see any of this), `bench.html`

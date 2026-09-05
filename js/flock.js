@@ -1035,8 +1035,14 @@ class GLPainter {
       // those machines "WebGL" is the slow path — measured headless: 23
       // draws/s against a 60 Hz rAF, while the Canvas 2D fallback keeps up —
       // so failing over to 2D is not a degradation, it is the fix.
+      // No `desynchronized`. It was asked for once, for a frame less of latency
+      // the flock never needed — this is an ambient animation, not a pen — and
+      // on Android Chrome the low-latency path puts a translucent canvas on a
+      // hardware overlay, where it composited OPAQUE over the page: the hero
+      // painted, the first frame landed, and the name was gone. Seen on a new
+      // Android phone; iOS ignores the hint, so it never showed there.
       const opts = { alpha: true, antialias: false, depth: false, stencil: false,
-        desynchronized: true, failIfMajorPerformanceCaveat: true,
+        failIfMajorPerformanceCaveat: true,
         powerPreference: 'low-power', premultipliedAlpha: true };
       const gl = canvas.getContext('webgl2', opts) || canvas.getContext('webgl', opts);
       if (!gl) return null;
@@ -1156,7 +1162,7 @@ class GLPainter {
 class Canvas2DPainter {
   constructor(canvas) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
+    this.ctx = canvas.getContext('2d', { alpha: true });   // no desynchronized — see GLPainter.create
     this.name = 'canvas2d';
     this.dpr = 1;
   }
