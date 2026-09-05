@@ -409,6 +409,30 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    450 ms — the last layout work in a page that otherwise never reflows after load.
    Measured with Chrome's own `LayoutCount`: 43 layouts per hover in-and-out, against 2
    for the transform that replaced it, pixel-for-pixel the same movement.
+8. **The birds were three round trips behind main.js.** Nothing on the path to the first
+   bird was known before the previous file had arrived: main.js, then its four small
+   imports, then a ten-line `flock.worker.js`, then flock.js — and on the live site through
+   Fastly each hop is a full RTT. Measured first-visit, 4× CPU: birds at 1.07 s against a
+   first paint of 0.50 s (4 Mbps / 150 ms), 2.4 s against 1.36 s (400 kbps / 100 ms). The
+   worker glue now lives at the end of flock.js, behind a `DedicatedWorkerGlobalScope` check,
+   and main.js spawns flock.js itself: one hop fewer, **−165 ms to first birds at 4 Mbps**
+   (−60 ms at 400 kbps), first paint unchanged. Two things that were measured and rejected,
+   so they are not tried again: a `modulepreload` for flock.js does nothing — a worker's
+   import ignores the document's module map, and on the slow link it made the birds *later*;
+   and modulepreload hints for the small modules in the `<head>` do buy ~145 ms of birds, but
+   at 30–180 ms of first paint, because on a bandwidth-bound link they share the pipe with
+   the stylesheet. Getting more than one hop back means spawning the worker before main.js
+   exists, from an inline script after the stylesheet — possible (`post` already queues), not
+   done.
+9. **The service worker re-downloaded the whole shell on every first visit.** The precache
+   used `cache: 'reload'` — bypass the HTTP cache — and so, at the load event, while flock.js
+   was often still arriving, it fetched everything the page had just fetched, again: 15
+   requests, ~100 KB, the entire first load a second time, on every first visit and every
+   version bump. `cache: 'no-cache'` keeps the guarantee that motivated `reload` (a 304 only
+   comes back when the server's *current* ETag matches; GitHub Pages honours the weak gzip
+   ETags Chrome stores, checked with curl) at eleven header-only round trips plus the three
+   files the page never loaded: **100 KB → 11 KB** over the wire, measured against a local
+   server with GitHub Pages' headers. It is also strictly more current than `reload` was.
 
 Instruments in `tools/`: `fps.mjs` (achieved flock frame rate — the number that matters;
 main-thread rAF deltas are vsync-pinned and cannot see any of this), `bench.html`
@@ -1121,12 +1145,14 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   after ten. Found the way you would expect — an edited stylesheet that would not show up on
   `localhost` — and it reproduces in four steps: install the worker, edit `css/style.css`,
   reload three times, watch nothing happen. It is now a rule with two halves:
-  - **A refresh that has something to replace bypasses the HTTP cache** (`cache: 'no-cache'`
-    — revalidate, take a 304 when nothing moved), and **the precache bypasses it outright**
-    (`cache: 'reload'`), so an install cannot bake in whatever the browser was holding. `V`
-    is bumped to `flock-v2` to drop the caches the old code poisoned; measured, a poisoned
+  - **A refresh that has something to replace revalidates past the HTTP cache** (`cache:
+    'no-cache'` — a conditional request, take a 304 when nothing moved), **and so does the
+    precache**, so an install cannot bake in whatever the browser was holding. The precache
+    first did this with `cache: 'reload'`, which bypasses the cache outright — and that
+    re-downloaded the whole shell on every first visit (*What actually costs*, 9). `V` was
+    bumped to `flock-v2` to drop the caches the old code poisoned (measured, a poisoned
     browser recovers in two reloads — one to install alongside, one to take over and drop
-    the old cache.
+    the old cache) and to `flock-v3` when `flock.worker.js` left the shell.
   - **A refresh that has nothing cached deliberately does not.** There is no update to miss,
     and there the browser's cache is a resource rather than an obstacle: it is what serves an
     archive screenshot offline on a *first* visit. The worker registers on `load` and only
@@ -1160,8 +1186,7 @@ index.html  404.html  humans.txt  robots.txt  .nojekyll
 sw.js             offline and repeat visits (see Engineering constraints)
 css/style.css
 js/main.js        the page
-js/flock.js       the simulation + renderer + frame loop (pure)
-js/flock.worker.js
+js/flock.js       the simulation + renderer + frame loop (pure) — and the worker script
 js/theme.js       theme + the hour's light, shared by both pages
 js/hue.js         hue AND light of the day, OKLCH → sRGB
 js/mark.js        the 2013 mark as points

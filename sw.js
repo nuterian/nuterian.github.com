@@ -17,28 +17,34 @@
  * never scrolled; the archive's screenshots are cached as they are seen.
  *
  * BOTH refreshes above have to say so explicitly, because a service worker's
- * own `fetch` goes through the HTTP cache like any other — and these assets are
- * served `immutable` for a year. Left plain, the revalidation was answered from
- * that cache with the very bytes it was trying to replace, and stored them
- * again: a stylesheet could not be updated at all, on any number of reloads.
- * Measured on the dev server, which is the honest case — it serves the same
- * headers GitHub Pages does and its files change every few minutes. So the
- * background refresh sends a conditional request (`no-cache`: revalidate, take
- * a 304 when nothing moved) and the precache bypasses the cache outright
- * (`reload`), which is the only way "at most one visit behind" is true.
+ * own `fetch` goes through the HTTP cache like any other — and GitHub Pages
+ * serves these assets fresh for ten minutes. Left plain, the revalidation was
+ * answered from that cache with the very bytes it was trying to replace, and
+ * stored them again: a stylesheet could not be updated at all, on any number of
+ * reloads. Measured on the dev server, which is the honest case — it serves the
+ * same headers GitHub Pages does and its files change every few minutes. So
+ * both send a conditional request (`no-cache`: revalidate, take a 304 when
+ * nothing moved). The precache used to bypass the cache outright (`reload`),
+ * and that re-downloaded the whole shell — ~100 KB, the page's entire first
+ * load over again — on every first visit and every version bump, at the load
+ * event, while flock.js was often still arriving. The conditional request
+ * carries the same guarantee: GitHub Pages compares against the ETag it is
+ * serving NOW, so the precache is exactly current rather than one visit behind,
+ * and it costs eleven header-only round trips plus the three files the page
+ * never loaded (measured: 100 KB → 11 KB over the wire).
  */
-const V = 'flock-v2';   // bumped to drop caches poisoned by the above
+const V = 'flock-v3';   // v3: flock.worker.js is gone — the worker is flock.js itself
 const SHELL = [
   '/', '/404.html',
   '/css/style.css',
-  '/js/main.js', '/js/theme.js', '/js/count.js', '/js/hue.js', '/js/flock.js', '/js/mark.js', '/js/flock.worker.js', '/js/404.js',
+  '/js/main.js', '/js/theme.js', '/js/count.js', '/js/hue.js', '/js/flock.js', '/js/mark.js', '/js/404.js',
   '/fonts/geist.woff2', '/fonts/geist-mono.woff2',
   '/img/mark.svg',
 ];
 
 addEventListener('install', (e) => {
   e.waitUntil(caches.open(V)
-    .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' }))))
+    .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'no-cache' }))))
     .then(() => skipWaiting()));
 });
 

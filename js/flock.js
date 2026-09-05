@@ -3,9 +3,9 @@
  *
  * A small boids simulation plus the renderer that draws it as ink strokes.
  * It is deliberately pure: no DOM, no globals. The same module runs inside a
- * Worker driving an OffscreenCanvas (see flock.worker.js) or on the main thread
- * when that isn't available (see main.js). Everything talks to it through
- * `Runner.handle(message)`.
+ * Worker driving an OffscreenCanvas — this file is the worker script, see the
+ * end — or on the main thread when that isn't available (see main.js).
+ * Everything talks to it through `Runner.handle(message)`.
  *
  * Rules, in order of how much they matter:
  *   separation  — don't crowd your neighbours
@@ -1323,4 +1323,27 @@ export class Runner {
     // the no-JS still away — see main.js. Once, and then never again.
     if (!this._drew) { this._drew = true; this.ondraw?.(); }
   }
+}
+
+// ---- The worker ------------------------------------------------------------
+// main.js spawns this very file as a module worker and transfers its <canvas>
+// here (OffscreenCanvas); after that it only sends small messages — pointer,
+// scroll offset, obstacle rects — so scrolling and layout on the main thread
+// never wait on the simulation, and vice versa. The glue lives here rather than
+// in a file of its own because a separate worker script was one more network
+// round trip on the path to the first bird, spent on ten lines that import this
+// one. Nothing below runs on the main thread, in Node, or in the tools: only a
+// dedicated worker has this scope.
+if (typeof DedicatedWorkerGlobalScope !== 'undefined' && self instanceof DedicatedWorkerGlobalScope) {
+  let runner = null;
+  self.onmessage = ({ data: m }) => {
+    if (m.type === 'canvas') {
+      runner = new Runner(m.canvas);
+      runner.onstats = (s) => self.postMessage({ type: 'stats', ...s });
+      runner.ondraw = () => self.postMessage({ type: 'drew' });
+      runner.onsnapshot = (s) => self.postMessage({ type: 'snapshot', ...s });
+      return;
+    }
+    runner?.handle(m);
+  };
 }

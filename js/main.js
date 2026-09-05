@@ -18,6 +18,11 @@
 // because the worker fetches it too. The page needs the mark (which lives in
 // mark.js, where this now asks for it), and the Runner ONLY if the worker path
 // fails, so that one is fetched at the moment it is needed and not before.
+// The worker IS flock.js: the module installs its own onmessage when it finds
+// itself in a worker scope, so the flock is one fetch away from this file, not
+// two — there used to be a ten-line flock.worker.js in between, and each hop
+// on that path is a full round trip the birds wait for (measured: −165 ms to
+// first birds at 4 Mbps / 150 ms RTT, first paint untouched).
 import { MARK, MARK_ASPECT, markSize } from './mark.js';
 import { hueAt } from './hue.js';
 import { setTheme as applyTheme, nextTheme, lightStyle, keepViewportHeight } from './theme.js';
@@ -223,7 +228,7 @@ async function startMainThread() {
 function startWorker() {
   if (params.has('mainthread') || !('transferControlToOffscreen' in canvas) || typeof Worker === 'undefined') return false;
   try {
-    const worker = new Worker(new URL('./flock.worker.js', import.meta.url), { type: 'module' });
+    const worker = new Worker(new URL('./flock.js', import.meta.url), { type: 'module' });
     const off = canvas.transferControlToOffscreen();
     worker.postMessage({ type: 'canvas', canvas: off }, [off]);
     worker.onmessage = ({ data }) => {
