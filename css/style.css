@@ -394,9 +394,20 @@ h1 {
  * exactly the tall windows where this goes wrong they are already ON screen,
  * so the browser has nothing to scroll. visibility takes them out of the tab
  * order outright, and it interpolates as `visible` until the very end, so the
- * fade still plays in full. */
+ * fade still plays in full.
+ *
+ * Desktop only — hover-capable, fine-pointer devices. The fade exists for the
+ * tall window, where the hero never leaves the screen; on a phone it scrolls
+ * off by construction and the fade adds nothing. It also cannot be trusted
+ * there: iOS 26 is the first iOS with animation-timeline at all, and its
+ * address bar animates into a pill right after load, which changes the page
+ * metrics under the root scroller's timeline (WebKit bug 310210, open as of
+ * Safari 26.6). Seen on a new iPhone as the name painting and vanishing at
+ * once: the timeline read its end, and the end of this animation is
+ * `visibility: hidden`. A fade you cannot see from the wrong device is a
+ * hero you cannot see from the wrong device. */
 @supports (animation-timeline: scroll()) {
-  @media (prefers-reduced-motion: no-preference) {
+  @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
     .hero-text { animation: hero-away linear both; animation-timeline: scroll(); animation-range: 0 55%; }
     @keyframes hero-away { to { opacity: 0; transform: translateY(-2rem); visibility: hidden; } }
   }

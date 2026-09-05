@@ -809,7 +809,7 @@ windows they are already on screen. Footer: the
 dateline “2013 → 2026” and the theme control, nothing else. The arrow fades in the first
 time it scrolls into view. The 2013 site is still preserved at `/2013/` and its
 screenshots still come from there, but nothing links to it any more — the archive
-sheets are how you see it now.
+sheets are how you see it now. **Desktop only, since 2026-09-05** — the rule is behind `(hover: hover) and (pointer: fine)` as well as `no-preference`. The fade exists for the tall window, where the hero never leaves the screen; on a phone it scrolls off by construction. And on iOS it cannot be trusted: iOS 26 is the first iOS with `animation-timeline` at all, and Safari's address bar animates into a pill right after load, which changes the page metrics under the root scroller's timeline — WebKit bug 310210, open as of Safari 26.6, whose fixed cousin 303401 shows the mechanism (a root timeline reading 100 % when it should not). Seen by Jugal on a new iPhone as the name painting and vanishing at once: the timeline read its end, and the end of this animation is `visibility: hidden`. Not reproducible in Playwright's WebKit, which has no address bar; a real iOS device is the only instrument. The rows' `view()` lift is left alone — its start state is an 8 px shift, so the same quirk could nudge a row, not hide it.
 
 **One interactive grammar.** Every control answers a pointer in one of two ways, and both
 are written once in `css/style.css` rather than per control:
