@@ -440,7 +440,10 @@ h2 { font-size: 1rem; font-weight: 500; margin: 0; letter-spacing: -0.01em; }
 }
 .row .num, .row .medium { font-family: var(--mono); font-feature-settings: 'tnum'; font-size: .8125rem; color: var(--muted); }
 .row .name { font-size: 1.125rem; font-weight: 450; letter-spacing: -0.012em; }
-.row .arrow { font-family: var(--mono); color: var(--muted); text-align: right; }
+/* Not selectable: select the archive and copy it, and you get the list, not
+ * seven → glued to the ends of the lines. The numbers are already ::before
+ * content and never copy; the arrows are real spans because they move. */
+.row .arrow { font-family: var(--mono); color: var(--muted); text-align: right; user-select: none; }
 /* NUDGE. The number and the name travel; the medium and the arrow are anchored
  * to the right-hand edge and stay put (which is precisely what padding-left
  * did — the 1fr column absorbed the shift, so only the first two moved). */
@@ -518,6 +521,13 @@ dialog#sheet::backdrop { background: transparent; }
 .sheet-open .hero, .sheet-open main, .sheet-open .site-footer { opacity: .22; }
 dialog#sheet[open] { animation: sheet-in .45s var(--ease-out); }
 @keyframes sheet-in { from { opacity: 0; transform: translateY(12px); } }
+/* …and leaves the way it came, in under half the time. It used to cut: a 12 px
+ * rise on the way in and a hard close on the way out. main.js adds `closing`,
+ * waits for this to end, and only then closes the dialog and hands the figures
+ * back (a still-open modal keeps the page inert, so the row cannot take focus
+ * until then). Skipped outright under reduced motion — the class is never set. */
+dialog#sheet[open].closing { animation: sheet-out .2s var(--ease-out) forwards; }
+@keyframes sheet-out { to { opacity: 0; transform: translateY(12px); } }
 .sheet-bar {
   position: sticky; top: calc(-1 * var(--bar)); margin: calc(-1 * var(--bar)) calc(-1 * var(--gutter)) 0;
   padding: calc(.5rem + var(--bar-extra)) var(--gutter) .5rem;

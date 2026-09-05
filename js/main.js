@@ -491,19 +491,40 @@ function putBack(slug) {
 function closeSheet({ back = true } = {}) {
   if (!current) return;
   const slug = current; current = null;
-  if (sheet.open) sheet.close();
-  putBack(slug);
   root.classList.remove('sheet-open');
   document.title = PAGE_TITLE;
   post({ type: 'tempo', value: 1 }); pushStyle({ alpha: 1 });
   if (back && history.state?.slug) history.back();
   else if (back) history.replaceState(null, '', '#archive');
-  if (opener) {
-    opener.focus({ preventScroll: true });
-    if (!byKey) { opener.classList.add('quiet'); opener.addEventListener('blur', () => opener.classList.remove('quiet'), { once: true }); }
-  }
+  // The sheet leaves the way it came — a 12 px drop and a fade, 200 ms (style.css,
+  // sheet-out) — and only THEN closes and hands its figures back to the row. It
+  // used to cut. Esc arrives here through the dialog's `cancel` event, prevented
+  // below so this runs first; a browser that closes regardless finds `open`
+  // already false and finishes at once, as does reduced motion. Focus goes back
+  // after the close, not before: an open modal keeps the row inert, and inert
+  // things cannot take focus. If something reopened the sheet meanwhile (a fast
+  // back/forward), it is left open and only the old figures are put away.
+  let done = false;
+  const finish = () => {
+    if (done) return; done = true;
+    sheet.classList.remove('closing');
+    if (!current) {
+      if (sheet.open) sheet.close();
+      if (opener) {
+        opener.focus({ preventScroll: true });
+        if (!byKey) { opener.classList.add('quiet'); opener.addEventListener('blur', () => opener.classList.remove('quiet'), { once: true }); }
+      }
+    }
+    if (slug !== current) putBack(slug);
+  };
+  if (sheet.open && !reduceMotion.matches) {
+    sheet.classList.add('closing');
+    sheet.addEventListener('animationend', e => { if (e.animationName === 'sheet-out') finish(); });
+    setTimeout(finish, 350);   // and if the animation never ends, it still closes
+  } else finish();
 }
-sheet.addEventListener('close', () => closeSheet()); // ESC (and any other native close)
+sheet.addEventListener('cancel', e => { e.preventDefault(); closeSheet(); }); // ESC: ours first, so it can animate out
+sheet.addEventListener('close', () => closeSheet()); // any other native close
 sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); }); // backdrop
 $('#sheet-close').addEventListener('click', () => closeSheet());
 $('#sheet-prev').addEventListener('click', () => step(-1));

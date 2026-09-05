@@ -1025,6 +1025,39 @@ to everyone who never lands there, which is the shape of every reward on this si
   arrow vacates. It was set *under* the name first: two extra lines, which tipped US Letter onto
   a second sheet. On the line it costs no height, and the card is one page on both papers again.
 
+### Seven more
+
+- **The policy proves the claim.** The head comment says nothing leaves this origin but one
+  count. A `Content-Security-Policy` meta now says so in a form a browser enforces and a
+  reader can check: `default-src 'self'`, `connect-src` for the count's host, `worker-src
+  'self'`, the one inline script per page allowed by its hash and nothing else. The
+  screenshot placeholders are `style` attributes, so `style-src-attr 'unsafe-inline'` — the
+  attribute, not `<style>`, and every engine in the gate knows the directive. The hash is the
+  fragile part: an edit to the inline script would not error, the browser would just refuse
+  to run it and the page would come up on the system theme without `--vh`, working and
+  quietly worse. So `check.mjs` recomputes both pages' hashes from the served HTML and fails
+  if either is not in the policy, and fails if the policy ever names a remote origin that is
+  not ours.
+- **`humans.txt` is linked** (`rel="author"`), and the head comment's list of things to try
+  ends with it. It carries the fifth rule of the flock; nothing had pointed at it.
+- **The shared image has a description.** `og:image:alt` and `twitter:image:alt` — every
+  screenshot on the page had one and the one image shared most did not.
+- **A home-screen icon.** iOS, given no `apple-touch-icon`, screenshots the page. `img/touch-icon.png`
+  is the mark on the light paper at 180 px, from `tools/icon.mjs`, with both colours read off
+  `js/hue.js` rather than typed, so a palette change reaches it by re-running the tool.
+- **The archive copies clean.** Select the list and paste it and you got seven `→` glued to
+  the line ends. The arrows are `user-select: none`; the numbers were already `::before` content
+  and never copied.
+- **The sheet leaves the way it came.** A 12 px rise on the way in and a cut on the way out. It
+  now drops and fades over 200 ms, then closes and hands its figures back — in that order,
+  because an open modal keeps the page inert and the row cannot take focus until it is shut.
+  Esc reaches it through the dialog's `cancel` event, prevented so the exit runs first; a
+  browser that closes regardless finds `open` already false and finishes at once. Never under
+  reduced motion: the class is not set, so nothing waits.
+- **The weakest alt on the page** — Meditation Music's second figure, "a second screen of the
+  same app" — now says what is in it: the player signed in, beside a map of the Americas
+  pinned with sessions and a counter.
+
 ## Accessibility
 
 WCAG 2.2 AA throughout, verified by axe on light/dark × desktop/phone × home/sheet/404.
@@ -1095,7 +1128,7 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   remembered. They protect the least screenshot-visible behaviour on the site, and most of
   this file is a catalogue of exactly those things regressing. WebKit and Firefox get their
   own job because they take far longer to download than to run, and nothing should wait on it.
-- **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; Lighthouse 100/100/100/100 on
+- **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; the CSP names every inline script by hash and no origin but ours; Lighthouse 100/100/100/100 on
   desktop and mobile; first load < 100 KB gzip (currently 86.7 KB); no console errors;
   reduced motion is actually still; no-JS still and `:target` work; the behaviours that
   shipped as screenshots, pinned (landscape stand-down, the thinned phone grid, the theme

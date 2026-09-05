@@ -13,6 +13,7 @@ import AxeBuilder from '@axe-core/playwright';
 import lighthouse from 'lighthouse';
 import * as LH from 'lighthouse/core/config/constants.js';
 import { gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 
 const BASE = process.argv[2] || 'http://localhost:4174';
@@ -79,6 +80,27 @@ console.log('\nno script');
   sheetVisible ? ok('no-js: #unlistr opens via :target') : fail('no-js: sheet does not open');
   await page.screenshot({ path: `${OUT}/nojs.png` });
   await ctx.close();
+}
+
+// --- policy: the CSP names the inline scripts it allows -----------------------
+// The Content-Security-Policy meta allows exactly one inline script per page, by
+// hash. An edit to that script — a new line in the theme restore, say — would not
+// error at edit time; the browser would simply refuse to run it, and the page
+// would come up on the system theme with no --vh, working, and quietly worse.
+// So the hash is recomputed here from the served HTML. (A data block such as the
+// JSON-LD is not a script to CSP and is not counted.)
+console.log('\npolicy');
+for (const path of ['/', '/404.html']) {
+  const html = await (await fetch(BASE + path)).text();
+  const csp = html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)"/)?.[1];
+  if (!csp) { fail(`${path}: no Content-Security-Policy meta`); continue; }
+  const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g)].filter(m => !/type="application\/ld\+json"/.test(m[1]));
+  const missing = inline.map(m => 'sha256-' + createHash('sha256').update(m[2]).digest('base64')).filter(h => !csp.includes(`'${h}'`));
+  if (missing.length) fail(`${path}: inline script hash not in CSP: ${missing.join(', ')}`);
+  else ok(`${path}: ${inline.length} inline script(s), every hash in the policy`);
+  const third = csp.match(/https?:\/\/[^\s;]+/g) || [];
+  if (third.some(u => u !== 'https://stats.jugalm.com')) fail(`${path}: policy names an origin that is not ours: ${third.join(' ')}`);
+  else ok(`${path}: the only remote origin in the policy is stats.jugalm.com`);
 }
 
 // --- behaviours that shipped as screenshots — pinned here so tuning can't

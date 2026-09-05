@@ -7,6 +7,7 @@ Dev-only. Nothing in here ships. `npm install` once, then:
 | `node fonts.mjs`       | subset Geist/Geist Mono → `../fonts/` (needs `src-fonts/*.woff2`)    |
 | `node images.mjs`      | AVIF/WebP screenshots, favicon, mark point cloud, and the sheet placeholders written into `../index.html`. Wants a running `serve.mjs` — the 2013 sheet is shot from `/2013/`, not dug out of a folder; without one that step is skipped |
 | `node still.mjs`       | inline no-JS SVG still → written into `../index.html`                |
+| `node icon.mjs`        | `../img/touch-icon.png` — the 180 px home-screen icon, the mark in the light palette |
 | `node og.mjs`          | `../img/og.png` from `?still&seed=2013&hour=9` — byte-reproducible     |
 | `node serve.mjs 4174`  | static server with gzip + the headers Pages really sends (`max-age=600`, ETag, 304s). Add `--no-cache` while editing — see the note in the file about what a normal vs a hard reload will and will not pick up |
 | `node check.mjs`       | the gate: axe, Lighthouse 100s, < 100 KB, reduced-motion, no-js, behaviours, offline |

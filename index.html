@@ -2,6 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- The next line is the head comment below, made checkable: the ONLY places this
+     page may load anything from, or send anything to. Nothing but this origin,
+     plus the one first-party count. The hash is the inline script further down;
+     tools/check.mjs recomputes it, so an edit there fails the gate rather than
+     silently switching that script off. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ln/x90dn5T9vnnaTqsxR5Lk54nuxR6AQuyCZ/KBVucQ='; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://stats.jugalm.com; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <!--
   Hello. You're looking at the source of a very small site with a lot of care in it.
 
@@ -36,6 +42,7 @@
 
   Try: window.flock in the console · ?n=400 · ?seed=2013 · ?still · press t
   · j and k walk the archive · take your hand off the mouse for a minute
+  · /humans.txt
 -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Jugal Manjeshwar</title>
@@ -44,6 +51,8 @@
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf9f6">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111113">
 <link rel="icon" href="img/mark.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="img/touch-icon.png">
+<link rel="author" href="humans.txt">
 <link rel="canonical" href="https://jugalm.com/">
 <meta property="og:type" content="profile">
 <meta property="og:title" content="Jugal Manjeshwar">
@@ -52,7 +61,9 @@
 <meta property="og:image" content="https://jugalm.com/img/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A flock of small birds, drawn as ink strokes, gathering into a brush-drawn jm monogram over a warm, sunlit page. Below it: Jugal Manjeshwar. Software engineer at YouTube since 2015.">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image:alt" content="A flock of small birds, drawn as ink strokes, gathering into a brush-drawn jm monogram over a warm, sunlit page. Below it: Jugal Manjeshwar. Software engineer at YouTube since 2015.">
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"Person",
 "name":"Jugal Manjeshwar","alternateName":["Jugal M","Jugal"],
@@ -218,7 +229,7 @@
               <source type="image/avif" srcset="img/archive/meditation-music-2.avif">
               <source type="image/webp" srcset="img/archive/meditation-music-2.webp">
               <img style="background:linear-gradient(#dadfd6,#cbdcdd 50%,#d4d6cd)" src="2013/img/mm2.png" width="960" height="525" loading="lazy" decoding="async"
-                   alt="Meditation Music: a second screen of the same app.">
+                   alt="Meditation Music, signed in: the same peach player on the left — the meditating-figure button with its timer at 1:43, a tip about arthritis, a volume slider — and on the right a map of the Americas dotted with red pins, with a counter reading 234,197 meditation sessions worldwide.">
             </picture>
             <figcaption>Meditation Music · second screen</figcaption>
           </figure>

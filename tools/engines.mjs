@@ -41,7 +41,6 @@ for (const [name, type] of [['webkit', webkit], ['firefox', firefox]]) {
     if (thirdParty.length) fail(`third-party requests: ${thirdParty.join(', ')}`);
 
     // --- axe, light and dark, on the engine's own rendering ---------------
-    let stillStyle;
     for (const scheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: scheme });
       // Switching the scheme on a live page starts the .4s theme fade, and axe
@@ -52,11 +51,14 @@ for (const [name, type] of [['webkit', webkit], ['firefox', firefox]]) {
       // for a contrast "violation" that exists in no frame anyone can stop on.
       // Waiting longer only makes it rarer. axe is asked about the settled
       // design, so the transitions are switched off for the duration of the pass.
-      await page.addStyleTag({ content: '*,*::before,*::after{transition:none!important}' })
-        .then(h => (stillStyle = h));
+      // As a constructed stylesheet, not an injected <style>: the page's own
+      // Content-Security-Policy allows no inline styles, and WebKit enforces it
+      // on Playwright's addStyleTag too. CSSOM is not governed by CSP, and the
+      // site sets no adopted sheets of its own, so clearing the list is safe.
+      await page.evaluate(() => { const s = new CSSStyleSheet(); s.replaceSync('*,*::before,*::after{transition:none!important}'); document.adoptedStyleSheets = [s]; });
       await page.waitForTimeout(250);
       const res = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
-      await stillStyle.evaluate(el => el.remove());
+      await page.evaluate(() => { document.adoptedStyleSheets = []; });
       if (res.violations.length) {
         // The rule id alone is not a diagnosis. This failed once in CI, on Linux
         // WebKit only, and said "color-contrast" and nothing else — no node, no
