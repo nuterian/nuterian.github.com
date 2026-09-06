@@ -9,12 +9,10 @@
  * Usage: node engines.mjs [baseURL]   (default http://localhost:4174)
  */
 import { webkit, firefox } from 'playwright';
-import AxeBuilder from '@axe-core/playwright';
+import { tally, watch, axeSettled, printViolations, stillFrame, noScript, DESKTOP } from './lib.mjs';
 
 const BASE = process.argv[2] || 'http://localhost:4174';
-let failures = 0;
-const fail = (m) => { failures++; console.log('  ✗', m); };
-const ok = (m) => console.log('  ✓', m);
+const { ok, fail, finish } = tally();
 
 for (const [name, type] of [['webkit', webkit], ['firefox', firefox]]) {
   console.log(`\n${name}`);
@@ -22,13 +20,9 @@ for (const [name, type] of [['webkit', webkit], ['firefox', firefox]]) {
 
   // --- the page runs: no errors, no third parties, and a live flock -------
   {
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const ctx = await browser.newContext(DESKTOP);
     const page = await ctx.newPage();
-    const errors = [], thirdParty = [];
-    page.on('pageerror', e => errors.push(e.message));
-    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-    page.on('request', r => { if (!r.url().startsWith(BASE) && !r.url().startsWith('data:')) thirdParty.push(r.url()); });
-    page.on('requestfailed', r => errors.push('request failed ' + r.url()));
+    const { errors, thirdParty } = watch(page, BASE);
     await page.goto(BASE + '/?seed=1', { waitUntil: 'networkidle' });
     // The flock is alive when frames are being drawn, whichever path drew them.
     let where = 'never started';
@@ -43,36 +37,10 @@ for (const [name, type] of [['webkit', webkit], ['firefox', firefox]]) {
     // --- axe, light and dark, on the engine's own rendering ---------------
     for (const scheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: scheme });
-      // Switching the scheme on a live page starts the .4s theme fade, and axe
-      // walks the document over time — so on a slow runner it sampled different
-      // elements at different points in it. That is exactly how this gate failed
-      // in CI: an h1 measured at the light theme's #55544f and a paragraph at the
-      // dark theme's #e9e8e3, both against the same #9c9c9b half-way background,
-      // for a contrast "violation" that exists in no frame anyone can stop on.
-      // Waiting longer only makes it rarer. axe is asked about the settled
-      // design, so the transitions are switched off for the duration of the pass.
-      // As a constructed stylesheet, not an injected <style>: the page's own
-      // Content-Security-Policy allows no inline styles, and WebKit enforces it
-      // on Playwright's addStyleTag too. CSSOM is not governed by CSP, and the
-      // site sets no adopted sheets of its own, so clearing the list is safe.
-      await page.evaluate(() => { const s = new CSSStyleSheet(); s.replaceSync('*,*::before,*::after{transition:none!important}'); document.adoptedStyleSheets = [s]; });
-      await page.waitForTimeout(250);
-      const res = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
-      await page.evaluate(() => { document.adoptedStyleSheets = []; });
-      if (res.violations.length) {
-        // The rule id alone is not a diagnosis. This failed once in CI, on Linux
-        // WebKit only, and said "color-contrast" and nothing else — no node, no
-        // colours, and it does not reproduce on a Mac. A gate that cannot be
-        // read from its own log costs more than it saves, so it prints the
-        // element and what the rule actually measured.
-        fail(`axe ${scheme}: ${res.violations.map(v => v.id).join(', ')}`);
-        for (const v of res.violations) for (const n of v.nodes.slice(0, 4)) {
-          console.log(`      ${v.id} · ${n.target.join(' ')}`);
-          console.log(`        ${n.html.replace(/\s+/g, ' ').slice(0, 110)}`);
-          const why = [...(n.any || []), ...(n.all || [])].map(c => c.message).join(' | ');
-          if (why) console.log(`        ${why.replace(/\s+/g, ' ').slice(0, 220)}`);
-        }
-      } else ok(`axe ${scheme}: 0 violations`);
+      // On the settled design, transitions frozen — see lib.mjs for the CI failure that taught it.
+      const res = await axeSettled(page, ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']);
+      if (res.violations.length) { fail(`axe ${scheme}: ${res.violations.map(v => v.id).join(', ')}`); printViolations(res.violations); }
+      else ok(`axe ${scheme}: 0 violations`);
     }
     await page.emulateMedia({ colorScheme: 'light' }); await page.waitForTimeout(600);
 
@@ -101,31 +69,18 @@ for (const [name, type] of [['webkit', webkit], ['firefox', firefox]]) {
   }
 
   // --- reduced motion is a still ------------------------------------------
-  {
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
-    const page = await ctx.newPage();
-    await page.goto(BASE + '/?seed=1'); await page.waitForTimeout(1200);
-    const a = await page.screenshot(); await page.waitForTimeout(800);
-    const b = await page.screenshot();
-    Buffer.compare(a, b) === 0 ? ok('reduced motion: frame is still') : fail('reduced motion: something animates');
-    await ctx.close();
-  }
+  (await stillFrame(browser, BASE)) ? ok('reduced motion: frame is still') : fail('reduced motion: something animates');
 
   // --- no script: the still and the :target sheet -------------------------
   {
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, javaScriptEnabled: false });
-    const page = await ctx.newPage();
-    await page.goto(BASE + '/#unlistr'); await page.waitForTimeout(300);
-    const still = await page.evaluate(() => getComputedStyle(document.querySelector('.still')).display !== 'none');
-    const sheet = await page.evaluate(() => getComputedStyle(document.getElementById('unlistr')).display !== 'none');
+    const { still, sheet } = await noScript(browser, BASE);
     still ? ok('no-js: inline still is shown') : fail('no-js: still hidden');
     sheet ? ok('no-js: #unlistr opens via :target') : fail('no-js: sheet does not open');
-    await ctx.close();
   }
 
   // --- the 404 flies too --------------------------------------------------
   {
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const ctx = await browser.newContext(DESKTOP);
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
@@ -137,5 +92,4 @@ for (const [name, type] of [['webkit', webkit], ['firefox', firefox]]) {
   await browser.close();
 }
 
-console.log(failures ? `\n${failures} failure(s)` : '\nboth engines green');
-process.exit(failures ? 1 : 0);
+finish('both engines green');

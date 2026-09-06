@@ -5,13 +5,23 @@
  * the whole site, flock included. Two rules, chosen for a page that deploys
  * by git push and must never serve yesterday's HTML:
  *
- *   NAVIGATIONS are network-first. A deploy lands on the very next visit;
+ *   NAVIGATIONS are network-first — revalidated past the HTTP cache on every
+ *   visit, one conditional request. A deploy lands on the very next visit;
  *   only a dead network falls back to the cached page.
  *
  *   EVERYTHING ELSE is stale-while-revalidate: answered from disk instantly,
- *   refreshed in the background. An asset is at most one visit behind, and
- *   the version below only needs bumping to *drop* things, not to update
- *   them — updates flow through on their own.
+ *   refreshed in the background. The version below only needs bumping to
+ *   *drop* things, not to update them — updates flow through on their own.
+ *
+ *   AND A DEPLOY LANDS WHOLE. Those two rules alone put every returning
+ *   visitor's first visit after a deploy on the new page with the OLD
+ *   stylesheet and scripts — one visit behind, exactly when the two were
+ *   changed together. So a navigation whose fresh HTML carries a different
+ *   ETag from the cached copy is a deploy, and the shell is refreshed with
+ *   conditional requests before the page is answered: one round of mostly
+ *   304s, once per deploy per visitor, and instant repeat visits otherwise.
+ *   check.mjs simulates a deploy against a throwaway server and reads the
+ *   new stylesheet off the very next visit.
  *
  * The shell is precached at install, so offline works even for a visitor who
  * never scrolled; the archive's screenshots are cached as they are seen.
@@ -34,6 +44,7 @@
  * never loaded (measured: 100 KB → 11 KB over the wire).
  */
 const V = 'flock-v3';   // v3: flock.worker.js is gone — the worker is flock.js itself
+// Refreshed together when a deploy is detected (see the navigation branch below).
 const SHELL = [
   '/', '/404.html',
   '/css/style.css',
@@ -55,6 +66,13 @@ addEventListener('activate', (e) => {
       .then(() => clients.claim()));
 });
 
+// The shell, revalidated: past the HTTP cache (`no-cache`), which may still be
+// holding last deploy's bytes as fresh for ten minutes. The pages themselves are
+// left out — navigations are network-first and the one that called this has
+// just been fetched.
+const refreshShell = (c) => Promise.all(SHELL.filter((u) => !u.endsWith('/') && !u.endsWith('.html'))
+  .map((u) => fetch(u, { cache: 'no-cache' }).then((r) => { if (r.ok) return c.put(u, r); }).catch(() => {})));
+
 addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || !req.url.startsWith(location.origin)) return;
@@ -63,12 +81,25 @@ addEventListener('fetch', (e) => {
     e.respondWith((async () => {
       const c = await caches.open(V);
       try {
-        const res = await fetch(req);
+        // Past the HTTP cache, always: GitHub Pages serves the page fresh for ten
+        // minutes, and a navigation answered from that cache is not network-first
+        // at all — the deploy check below never saw a new ETag because the page
+        // it compared was the browser's own copy (caught by check.mjs's deploy
+        // gate). A conditional request costs one 304 when nothing moved.
+        const res = await fetch(req, { cache: 'no-cache' });
         // A redirected response is deliberately not cached. A navigation request
         // carries redirect mode "manual", and replaying a stored redirected
         // response against one is a spec error — which is exactly what the old
         // origin does now that nuterian.github.io 301s to jugalm.com.
-        if (res.ok && !res.redirected) c.put(req, res.clone());
+        if (res.ok && !res.redirected) {
+          // A different ETag on the same page is a deploy: the assets this page
+          // is about to ask for must come from the same one, so the shell is
+          // brought up to date before the page is answered.
+          const old = await c.match(req);
+          const deployed = old && old.headers.get('etag') && old.headers.get('etag') !== res.headers.get('etag');
+          await c.put(req, res.clone());
+          if (deployed) await refreshShell(c);
+        }
         return res;
       } catch {
         // Offline: the cached page if we have this one, the home page for

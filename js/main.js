@@ -93,28 +93,29 @@ let light; // the hour's light, kept for window.flock.light (set by pushStyle)
 // number — so the minute the wheel wrapped (05:48 local, 359.1 to 0.1) the accent
 // swept the whole circle in two seconds, the long way, through every hue the
 // palette rejects. Each reading is therefore unwrapped onto the last: whichever of
-// h, h+360, h−360 is nearest, and OKLCH takes any angle. And a tab that slept
-// through a closed lid used to get its first reading as the same tour (21:00 to
-// 09:00 passes through cyan): the transition is for a minute's drift, never more
-// than ~2°, so anything past HUE_STEP lands with it off — the arrival rule the
-// first paint already had — and the clock is re-read the moment the tab returns
-// rather than at the next tick.
-const HUE_STEP = 10;
+// h, h+360, h−360 is nearest, and OKLCH takes any angle.
+//
+// And the 2 s ease is for a step you could SEE — 1° to HUE_STEP, which is what a
+// tab gets when it wakes from a sleep short enough to be worth easing; past
+// HUE_STEP (21:00 to 09:00 passes through cyan) it lands with the transition off,
+// the arrival rule the first paint already had. A minute's drift is a tenth of a
+// degree, and it used to get the full ease too: 210 repaints of the whole page,
+// every other minute, for a change nobody can see — measured, DESIGN.md "What
+// actually costs", 12. It snaps now, and the page repaints once. The class goes
+// on two frames BEFORE a step that eases, because it must not land in the same
+// style recalculation as the value; it comes off for everything else.
+const HUE_STEP = 10, HUE_SEEN = 1;
 const unwrap = (h, from) => from + ((h - from) % 360 + 540) % 360 - 180;
 function applyHue(next = hue) {
-  const jump = Math.abs(next - hue) > HUE_STEP;
+  const step = Math.abs(next - hue);
   hue = next;
-  if (jump) root.classList.remove('hue-live');
-  root.style.setProperty('--hue', hue.toFixed(1)); pushStyle();
-  if (jump) requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('hue-live')));
+  const set = () => { root.style.setProperty('--hue', hue.toFixed(1)); pushStyle(); };
+  if (step < HUE_SEEN || step > HUE_STEP) { root.classList.remove('hue-live'); return set(); }
+  if (root.classList.contains('hue-live')) return set();
+  root.classList.add('hue-live');
+  requestAnimationFrame(() => requestAnimationFrame(set));
 }
 applyHue();
-// …and only now may the hue animate. The transition exists for the drift from
-// one hour to the next, a few degrees at a time; applied to the FIRST hue it
-// animated the whole way from the stylesheet's static default, straight through
-// hues the palette does not contain (style.css, .hue-live). Two frames, because
-// the class must not land in the same style recalculation as the value.
-requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('hue-live')));
 function tick() { if (pinnedHour === null && !params.has('hue')) applyHue(unwrap(hueAt(clock()), hue)); }
 setInterval(tick, 60_000);
 
@@ -688,7 +689,7 @@ window.flock = {
   tempo: v => post({ type: 'tempo', value: v }),
   get seed() { return seed; },
   get hue() { return (hue % 360 + 360) % 360; },
-  set hue(v) { hue = +v; applyHue(); },
+  set hue(v) { applyHue(+v); },   // through applyHue, so a step you could see still eases
   get light() { return { ...light, az: light.az * 180 / Math.PI }; },
   snapshot() { return new Promise(r => { snapshotResolve = r; post({ type: 'snapshot' }); }); },
   get where() { return `${inWorker ? 'worker' : 'main'} · ${stats.renderer || 'starting'}`; },

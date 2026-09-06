@@ -449,6 +449,18 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    every comment it has, because module scripts block nothing. Worth about 117 ms of first paint
    at 400 kbps and ~29 ms under Lighthouse's mobile throttle; the short remarks that stayed are
    the rest of the gap to a bare file.
+12. **The minute's tick repainted the page for two seconds.** The hue drifts a median 0.08° a
+   minute, and 658 minutes a day that moves the tenth of a degree the stylesheet sees. Each such
+   tick ran the 2 s `--hue` ease, and the wash's own .4 s transition — permanent on `:root` — ran
+   on every tick besides, for the new glow. The wash is a full-viewport layer. Traced with
+   Chrome's paint events, desktop and Pixel 7 alike: a quiet 2.6 s paints **0** times; a tick's
+   0.1° of hue, **210** (122 style recalcs); the glow alone, 48; the light's position alone, 2.
+   For a change nobody can see, on a page whose whole design is that nothing repaints after
+   load, beside a canvas that is animating. So both transitions are scoped: the wash fades only
+   while a theme is switching (`theme-fade`, .4 s, set by theme.js for a switch by hand or by
+   the system), and the hue eases only for a step between 1° and `HUE_STEP` — the return from
+   a sleeping tab — with `hue-live` put on two frames before the value and taken off for
+   everything else. A tick now paints twice: the light moved. Measured after: 2.
 
 Instruments in `tools/`: `fps.mjs` (achieved flock frame rate — the number that matters;
 main-thread rAF deltas are vsync-pinned and cannot see any of this), `bench.html`
@@ -1151,7 +1163,7 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   remembered. They protect the least screenshot-visible behaviour on the site, and most of
   this file is a catalogue of exactly those things regressing. WebKit and Firefox get their
   own job because they take far longer to download than to run, and nothing should wait on it.
-- **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; the CSP names every inline script by hash and no origin but ours; the mirrors hold (the phone breakpoint is one constant in main.js and the same query in style.css, hue.js computes what `--flock` resolves to, the service worker's shell is exactly what the two pages load plus the favicon, the font weight range agrees between fonts.mjs, both `@font-face` blocks and every use — its first run found the sheet going full-bleed at 700 px while everything else turned at 699, there since the first commit); Lighthouse 100/100/100/100 on
+- **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; the CSP names every inline script by hash and no origin but ours; the mirrors hold (the phone breakpoint is one constant in main.js and the same query in style.css, hue.js computes what `--flock` resolves to, the service worker's shell is exactly what the two pages load plus the favicon, the font weight range agrees between fonts.mjs, both `@font-face` blocks and every use — its first run found the sheet going full-bleed at 700 px while everything else turned at 699, there since the first commit); a deploy lands whole (the service worker gate above); Lighthouse 100/100/100/100 on
   desktop and mobile; first load < 100 KB gzip (currently 86.7 KB); no console errors;
   reduced motion is actually still; no-JS still and `:target` work; the behaviours that
   shipped as screenshots, pinned (landscape stand-down, the thinned phone grid, the theme
@@ -1167,8 +1179,20 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   a silent fallback is at least a visible one. As of writing, both take worker + webgl2.
 - **The service worker** (`sw.js`): navigations are network-first, so a deploy lands on
   the very next visit and only a dead network falls back to cache; everything else is
-  stale-while-revalidate, so repeat visits paint from disk and an asset is at most one
-  visit behind. The shell is precached at install (offline works for a visitor who never
+  stale-while-revalidate, so repeat visits paint from disk. **And a deploy lands whole:**
+  those two rules alone put every returning visitor's first visit after a deploy on the new
+  page with the old stylesheet and scripts — one visit behind, exactly when the two were
+  changed together (twice on 2026-09-05 Jugal was told to open the site twice to see a fix).
+  The gate written for this found a second gap first: navigations were only network-first
+  outside the ten minutes GitHub Pages marks the page fresh — inside them the worker's own
+  `fetch` was answered by the browser's HTTP cache, so "a deploy lands on the very next visit"
+  was true only for visits ten minutes apart. Navigations now revalidate past that cache
+  (`no-cache`, one 304 when nothing moved).
+  A navigation whose fresh HTML carries a different ETag from the cached copy is a deploy,
+  and the shell is refreshed with conditional requests before the page is answered: one
+  round of mostly 304s, once per deploy per visitor. `check.mjs` simulates a deploy against
+  a throwaway server — new stylesheet, new page ETag — and reads the new rule off the very
+  next visit. The shell is precached at install (offline works for a visitor who never
   scrolled); archive screenshots are cached as they are seen; the cache version exists to
   *drop* things, not to update them — updates flow through on their own. Offline, the
   console says so: `flock offline — everything you see was already here.`
@@ -1234,6 +1258,16 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   bird that is simultaneously slow, content-adjacent and clustered — the actual signature
   of a jam, as opposed to normal flocking density or a single-frame speed dip while
   turning.
+
+## One library under the gates
+
+`tools/lib.mjs` (2026-09-05). `check.mjs` and `engines.mjs` had grown separate copies of the
+same checks — errors and third parties watched per page, axe on the settled design, the
+reduced-motion still, the no-script still and its `:target` sheet — and the copies had already
+disagreed once: the WebKit run froze transitions before axe with a constructed stylesheet, the
+Chromium run did not freeze them at all and leaned on a 700 ms wait. One copy of each now, and
+the engines run the same journeys as Chromium by construction rather than by claim. The
+printed labels did not change, so a green run reads exactly as it did.
 
 ## The stylesheet, annotated
 

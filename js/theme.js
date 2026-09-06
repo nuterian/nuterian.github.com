@@ -19,10 +19,24 @@ export const isDark = () =>
 // blocked outright (the inline restore in index.html guards its read for the
 // same reason), and the switch itself must not die on the memo.
 export function setTheme(mode) { // 'system' | 'dark' | 'light'
+  fadeWash();
   if (mode === 'system') delete root.dataset.theme; else root.dataset.theme = mode;
   syncThemeColor(mode);
   try { mode === 'system' ? localStorage.removeItem('theme') : localStorage.setItem('theme', mode); } catch {}
 }
+
+// The wash crossfades only while a theme is switching. Its transition used to
+// be permanent on :root, which meant every minute's tick — a new glow, a new
+// tenth of a degree of hue — repainted the full-viewport wash for .4 s (and the
+// hue's own 2 s eased it for longer still). Now the class is on for the .4 s a
+// switch takes, by hand or by the system, and the tick repaints once.
+let fadeTimer = 0;
+export function fadeWash() {
+  root.classList.add('theme-fade');
+  clearTimeout(fadeTimer);
+  fadeTimer = setTimeout(() => root.classList.remove('theme-fade'), 500);
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', fadeWash);
 
 // The browser's own chrome — Safari's tab bar, a phone's status bar — takes its
 // colour from `theme-color`, and the two tags in the head are keyed to the SYSTEM

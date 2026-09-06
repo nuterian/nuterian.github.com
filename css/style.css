@@ -81,8 +81,15 @@
   --t-tint: .3s var(--ease-out);
 }
 /* The hue eases between hours — DESIGN.md, "The stylesheet, annotated" */
-:root { transition: --wash .4s var(--ease-in-out); }
-:root.hue-live { transition: --hue 2s linear, --wash .4s var(--ease-in-out); }
+/* Both transitions are SCOPED, because each one repaints the whole page for as
+ * long as it runs — the wash is a full-viewport layer. The wash fades only while
+ * a theme switch is in flight (theme.js sets `theme-fade` for the .4 s), and the
+ * hue eases only for a step you could see (main.js sets `hue-live` for a 1–10°
+ * step, the return from a sleeping tab). The minute's drift is a tenth of a
+ * degree: it snaps, and the page repaints once. Measured: 210 paints per tick
+ * before, 2 after (DESIGN.md, "What actually costs", 12). */
+:root.theme-fade { transition: --wash .4s var(--ease-in-out); }
+:root.hue-live { transition: --hue 2s linear; }
 /* The manual theme switch — DESIGN.md, "The stylesheet, annotated" */
 :root[data-theme='dark']  { color-scheme: dark; --shot-filter: var(--shot-filter-night); }
 :root[data-theme='light'] { color-scheme: light; }

@@ -10,6 +10,7 @@ Dev-only. Nothing in here ships. `npm install` once, then:
 | `node icon.mjs`        | `../img/touch-icon.png` — the 180 px home-screen icon, the mark in the light palette |
 | `node og.mjs`          | `../img/og.png` from `?still&seed=2013&hour=9` — byte-reproducible     |
 | `node serve.mjs 4174`  | static server with gzip + the headers Pages really sends (`max-age=600`, ETag, 304s). Add `--no-cache` while editing — see the note in the file about what a normal vs a hard reload will and will not pick up |
+| `lib.mjs`              | not a command — what `check.mjs` and `engines.mjs` share: the tally, errors and third parties watched per page, axe on the settled design, the reduced-motion still, the no-script still |
 | `node check.mjs`       | the gate: axe, Lighthouse 100s, < 100 KB, reduced-motion, no-js, behaviours, offline |
 | `node engines.mjs`     | the same site in WebKit and Firefox (`npx playwright install webkit firefox` once) |
 | `node shots.mjs`       | contact sheet of every state → `out/contact-sheet.png`                |

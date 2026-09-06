@@ -6,13 +6,16 @@
  *   • Console: no errors, no failed requests, no third-party requests except the
  *     first-party count beacon (stats.jugalm.com — see js/count.js)
  *   • Motion: prefers-reduced-motion renders a still (no animation frames)
+ *   • Deploy: one visit after a deploy, the page runs on the new assets — the
+ *     service worker's two caching rules alone left it one visit behind
  *   • Mirrors: the facts the code keeps in two places — the phone breakpoint,
  *     the flock's colour, the service worker's shell, the font weight range —
  *     recomputed from the served files and held together here
  * Usage: node check.mjs [baseURL]   (default http://localhost:4173)
  */
 import { chromium, devices } from 'playwright';
-import AxeBuilder from '@axe-core/playwright';
+import { tally, watch, axeSettled, printViolations, stillFrame, noScript } from './lib.mjs';
+import { createServer } from 'node:http';
 import lighthouse from 'lighthouse';
 import * as LH from 'lighthouse/core/config/constants.js';
 import { gzipSync } from 'node:zlib';
@@ -23,9 +26,7 @@ import { flockColor } from '../js/hue.js';
 const BASE = process.argv[2] || 'http://localhost:4174';
 const OUT = process.env.OUT || new URL('./out/', import.meta.url).pathname;
 mkdirSync(OUT, { recursive: true });
-let failures = 0;
-const fail = (m) => { failures++; console.log('  ✗', m); };
-const ok = (m) => console.log('  ✓', m);
+const { ok, fail, finish } = tally();
 
 const browser = await chromium.launch({ args: ['--remote-debugging-port=9222'] });
 
@@ -35,22 +36,14 @@ for (const scheme of ['light', 'dark']) {
   for (const [label, opts] of [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', devices['iPhone 13']]]) {
     const ctx = await browser.newContext({ ...opts, colorScheme: scheme, serviceWorkers: 'block' });
     const page = await ctx.newPage();
-    const errors = [];
-    page.on('pageerror', e => errors.push(e.message));
-    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-    const thirdParty = [];
-    // stats.jugalm.com is ours — Umami on our own box, named here rather than
-    // switching the check off, so anything ELSE that ever phones home still fails.
-    const COUNT_ORIGIN = 'https://stats.jugalm.com';
-    page.on('request', r => { if (!r.url().startsWith(BASE) && !r.url().startsWith('data:') && !r.url().startsWith(COUNT_ORIGIN)) thirdParty.push(r.url()); });
-    page.on('requestfailed', r => errors.push('request failed ' + r.url()));
+    const { errors, thirdParty } = watch(page, BASE);
 
     for (const path of ['/', '/#kidscerts', '/404.html']) {
       await page.goto(BASE + path + (path.includes('#') ? '' : '?seed=1'), { waitUntil: 'networkidle' });
       await page.waitForTimeout(700);
-      const res = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze();
+      const res = await axeSettled(page, ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']);
       const v = res.violations;
-      if (v.length) { fail(`${scheme}/${label} ${path}: ${v.length} violation(s)`); v.forEach(x => console.log('     -', x.id, x.impact, x.nodes.length, 'node(s):', x.nodes[0]?.html?.slice(0, 100))); }
+      if (v.length) { fail(`${scheme}/${label} ${path}: ${v.length} violation(s)`); printViolations(v); }
       else ok(`${scheme}/${label} ${path}: 0 violations (${res.passes.length} rules passed)`);
     }
     if (errors.length) fail(`${scheme}/${label}: console/request errors: ${errors.join(' | ')}`);
@@ -62,28 +55,14 @@ for (const scheme of ['light', 'dark']) {
 
 // --- reduced motion → still ------------------------------------------------
 console.log('\nmotion');
-{
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' });
-  const page = await ctx.newPage();
-  await page.goto(BASE + '/?seed=1'); await page.waitForTimeout(1200);
-  const a = await page.screenshot({ fullPage: false }); await page.waitForTimeout(800);
-  const b = await page.screenshot({ fullPage: false });
-  if (Buffer.compare(a, b) === 0) ok('reduced motion: frame is still'); else fail('reduced motion: the canvas is animating');
-  await ctx.close();
-}
+(await stillFrame(browser, BASE, { serviceWorkers: 'block' })) ? ok('reduced motion: frame is still') : fail('reduced motion: the canvas is animating');
 
 // --- no script ------------------------------------------------------------
 console.log('\nno script');
 {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, javaScriptEnabled: false });
-  const page = await ctx.newPage();
-  await page.goto(BASE + '/#unlistr'); await page.waitForTimeout(300);
-  const stillVisible = await page.evaluate(() => getComputedStyle(document.querySelector('.still')).display !== 'none');
-  const sheetVisible = await page.evaluate(() => getComputedStyle(document.getElementById('unlistr')).display !== 'none');
-  stillVisible ? ok('no-js: inline still is shown') : fail('no-js: still hidden');
-  sheetVisible ? ok('no-js: #unlistr opens via :target') : fail('no-js: sheet does not open');
-  await page.screenshot({ path: `${OUT}/nojs.png` });
-  await ctx.close();
+  const { still, sheet } = await noScript(browser, BASE, {}, `${OUT}/nojs.png`);
+  still ? ok('no-js: inline still is shown') : fail('no-js: still hidden');
+  sheet ? ok('no-js: #unlistr opens via :target') : fail('no-js: sheet does not open');
 }
 
 // --- policy: the CSP names the inline scripts it allows -----------------------
@@ -332,6 +311,43 @@ console.log('\noffline');
   await ctx.close();
 }
 
+// --- deploy: the next visit runs on the new assets ---------------------------
+// Navigations are network-first and assets stale-while-revalidate, and those two
+// rules alone put a returning visitor's first visit after a deploy on the new
+// page with the OLD stylesheet and scripts. sw.js now treats a changed page ETag
+// as a deploy and refreshes the shell before answering. Proved here against a
+// throwaway server that can change its files mid-run, the way a deploy does:
+// install, precache, "deploy" a stylesheet with one new rule (and a new page
+// ETag, as any deploy gives index.html), visit ONCE, read the rule.
+console.log('\ndeploy');
+{
+  const ROOT = new URL('../', import.meta.url).pathname;
+  const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.png': 'image/png', '.webp': 'image/webp', '.avif': 'image/avif', '.txt': 'text/plain', '.xml': 'application/xml' };
+  const override = new Map();
+  const srv = createServer((req, res) => {
+    let p = decodeURIComponent(new URL(req.url, 'http://x').pathname); if (p.endsWith('/')) p += 'index.html';
+    let body; try { body = readFileSync(ROOT + p); } catch { res.writeHead(404); return res.end(); }
+    if (override.has(p)) body = Buffer.from(override.get(p));
+    const etag = '"' + createHash('sha1').update(body).digest('hex').slice(0, 16) + '"';
+    const h = { 'Content-Type': TYPES[p.slice(p.lastIndexOf('.'))] || 'application/octet-stream', 'Cache-Control': 'max-age=600', ETag: etag };
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, h); return res.end(); }
+    h['Content-Length'] = body.length; res.writeHead(200, h); res.end(body);
+  });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'allow' });
+  const page = await ctx.newPage();
+  await page.goto(base + '/', { waitUntil: 'load' });
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.waitForFunction(() => caches.match('/css/style.css').then(r => !!r), null, { timeout: 8000 });
+  override.set('/css/style.css', readFileSync(ROOT + 'css/style.css', 'utf8') + '\n.deploy-probe { display: none; }\n');
+  override.set('/index.html', readFileSync(ROOT + 'index.html', 'utf8').replace('</head>', '<!-- deployed --></head>'));
+  await page.goto(base + '/', { waitUntil: 'load' });
+  const fresh = await page.evaluate(() => [...document.styleSheets].some(s => { try { return [...s.cssRules].some(r => r.selectorText === '.deploy-probe'); } catch { return false; } }));
+  fresh ? ok('deploy: one visit after a deploy, the page runs on the new stylesheet') : fail('deploy: the page ran on last deploy\'s stylesheet');
+  await ctx.close(); srv.close();
+}
+
 const loaded = { home: [], notFound: [] };   // filled by the budget section, read by mirrors
 // --- budget ---------------------------------------------------------------
 console.log('\nbudget');
@@ -443,5 +459,4 @@ for (const formFactor of ['desktop', 'mobile']) {
 }
 
 await browser.close();
-console.log(failures ? `\n${failures} failure(s)` : '\nall green');
-process.exit(failures ? 1 : 0);
+finish('all green');
