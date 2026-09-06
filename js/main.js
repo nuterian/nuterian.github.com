@@ -26,7 +26,7 @@
 import { MARK, MARK_ASPECT, markSize } from './mark.js';
 import { hueAt } from './hue.js';
 import { setTheme as applyTheme, nextTheme, lightStyle, keepViewportHeight } from './theme.js';
-import { count } from './count.js';
+import { count, report, watchVitals } from './count.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -35,6 +35,11 @@ const params = new URLSearchParams(location.search);
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const STILL = params.has('still') || reduceMotion.matches;
 const darkMQ = matchMedia('(prefers-color-scheme: dark)');
+// The phone breakpoint, ONCE. style.css has the same query, and check.mjs
+// holds the two together — a "must match" comment never did.
+const PHONE = '(max-width: 699px)';
+const heroBound = matchMedia(PHONE);
+const vitals = watchVitals();   // LCP and the slowest interaction, for the perf beacon below
 
 // Send a message to wherever the flock lives (§2). Until it lives anywhere,
 // messages wait in line: the worker path replaces this within the same tick,
@@ -158,7 +163,7 @@ measureWorld();
 // The content walls, in document(+60px bleed) space — sent once per layout; the
 // worker subtracts the live scroll offset, so scrolling reads no layout.
 function sendObstacles() {
-  const wide = vw() >= 700;
+  const wide = !heroBound.matches;
   const rects = $$('[data-obstacle]')
     .filter(el => wide || !el.dataset.obstacleWide)
     .map(el => {
@@ -182,9 +187,8 @@ const dpr = () => {
   const area = Math.max(1, world.w * world.h);
   return Math.min(devicePixelRatio || 1, 2, Math.max(1.5, Math.sqrt(PIX / area)));
 };
-const vw = () => innerWidth;
 const coarse = matchMedia('(pointer: coarse)').matches;
-const TARGET = params.has('n') ? +params.get('n') : (coarse || innerWidth < 700 ? 120 : 140);
+const TARGET = params.has('n') ? +params.get('n') : (coarse || heroBound.matches ? 120 : 140);
 const seed = params.has('seed') ? +params.get('seed') : undefined;
 const month = new Date().getMonth();
 const season = params.get('season') || (month === 11 ? 'snow' : null);
@@ -306,7 +310,6 @@ document.addEventListener('visibilitychange', () => {
 // here. Except on a phone, where style.css anchors the canvas to the document
 // and the sky scrolls away with the hero: the world does not move there, so the
 // offset is a constant 0 and the per-frame message is not sent at all.
-const heroBound = matchMedia('(max-width: 699px)');   // must match style.css
 const scrollOffset = () => (heroBound.matches ? 0 : scrollY);
 let scrollRaf = 0;
 addEventListener('scroll', () => {
@@ -421,7 +424,7 @@ function onTilt(e) {
 // across a phone — at which point the strokes cannot separate and the jm
 // collapses into a blob however many birds you throw at it. Phones therefore
 // give the mark a much larger share of a much smaller canvas.
-function homeSize() { const { w, h } = world; return markSize(w, h, vw() < 700); }
+function homeSize() { const { w, h } = world; return markSize(w, h, heroBound.matches); }
 // Even at 66% the phone mark is a ~10 px point pitch against a 10.4 px
 // wingspan, and adjacent birds weld into one blob — at any share or wingspan
 // (both were tried; the ratio is what fails). So a phone keeps the size and
@@ -646,6 +649,25 @@ if ('serviceWorker' in navigator) {
 }
 
 count();
+// …and once, how the page ran here: at ten seconds, or when the page goes
+// away first — a tab switched on a phone fires `visibilitychange`, not
+// `pagehide`. sendBeacon survives both. Whichever comes first, and only once.
+{
+  let sent = false;
+  const perf = () => {
+    if (sent) return; sent = true;
+    const d = dpr();
+    report('perf', {
+      fps: Math.round(stats.fps), n: stats.n,
+      renderer: stats.renderer || (STILL ? 'still' : 'none'), where: inWorker ? 'worker' : 'main',
+      dpr: +d.toFixed(2), mp: +(world.w * world.h * d * d / 1e6).toFixed(2),
+      ...vitals(), t: Math.round(performance.now() / 1000),
+    });
+  };
+  setTimeout(perf, 10_000);
+  addEventListener('pagehide', perf);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) perf(); });
+}
 
 // Console: one line, and a handle to poke at.
 console.log(

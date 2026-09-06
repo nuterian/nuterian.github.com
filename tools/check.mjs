@@ -6,6 +6,9 @@
  *   • Console: no errors, no failed requests, no third-party requests except the
  *     first-party count beacon (stats.jugalm.com — see js/count.js)
  *   • Motion: prefers-reduced-motion renders a still (no animation frames)
+ *   • Mirrors: the facts the code keeps in two places — the phone breakpoint,
+ *     the flock's colour, the service worker's shell, the font weight range —
+ *     recomputed from the served files and held together here
  * Usage: node check.mjs [baseURL]   (default http://localhost:4173)
  */
 import { chromium, devices } from 'playwright';
@@ -14,7 +17,8 @@ import lighthouse from 'lighthouse';
 import * as LH from 'lighthouse/core/config/constants.js';
 import { gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { flockColor } from '../js/hue.js';
 
 const BASE = process.argv[2] || 'http://localhost:4174';
 const OUT = process.env.OUT || new URL('./out/', import.meta.url).pathname;
@@ -328,6 +332,7 @@ console.log('\noffline');
   await ctx.close();
 }
 
+const loaded = { home: [], notFound: [] };   // filled by the budget section, read by mirrors
 // --- budget ---------------------------------------------------------------
 console.log('\nbudget');
 {
@@ -340,10 +345,77 @@ console.log('\nbudget');
   });
   await page.goto(BASE + '/?seed=1', { waitUntil: 'networkidle' }); await page.waitForTimeout(500);
   const firstLoad = sizes.filter(s => !s.u.includes('/img/archive/'));
+  loaded.home = firstLoad.map(s => s.u.replace(/\?.*$/, ''));
+  // The 404's own load, remembered for the shell check — it is precached too.
+  await page.goto(BASE + '/404.html?seed=1', { waitUntil: 'networkidle' }); await page.waitForTimeout(300);
+  loaded.notFound = sizes.filter(s => !firstLoad.includes(s)).map(s => s.u.replace(/\?.*$/, ''));
   const total = firstLoad.reduce((a, s) => a + Math.min(s.raw, s.gz), 0);
   firstLoad.forEach(s => console.log(`     ${String(Math.min(s.raw, s.gz)).padStart(6)} B  ${s.u}`));
   total < 100 * 1024 ? ok(`first load ${(total / 1024).toFixed(1)} KB (gzip) < 100 KB`) : fail(`first load ${(total / 1024).toFixed(1)} KB ≥ 100 KB`);
   await ctx.close();
+}
+
+// --- mirrors: what the code keeps in two places, held together ---------------
+// A "must match" comment is a promise nobody checks. Each of these was such a
+// comment; each is now recomputed from the served files, in the manner of the
+// CSP hash above, so drift fails here instead of on someone's screen.
+console.log('\nmirrors');
+{
+  const text = async (p) => (await fetch(BASE + p)).text();
+  const [mainJs, css, sw, html] = await Promise.all(['/js/main.js', '/css/style.css', '/sw.js', '/'].map(text));
+  const code = (js) => js.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  // 1. The phone breakpoint: one constant in main.js, one query in style.css, no other number.
+  const jsQ = mainJs.match(/const PHONE = '([^']+)'/)?.[1];
+  // Every max-width query is the phone; a min-width one is a different fact (the wide desk) with no JS twin.
+  const cssQ = [...new Set([...css.matchAll(/@media \((max-width: \d+px)\)/g)].map(m => m[1]))];
+  const strays = (code(mainJs).match(/\b(699|700)\b/g) || []).length - 1;   // PHONE itself is one
+  if (!jsQ) fail('breakpoint: main.js has no PHONE constant');
+  else if (cssQ.length !== 1 || cssQ[0] !== jsQ.slice(1, -1)) fail(`breakpoint: main.js says ${jsQ}, style.css says ${cssQ.join(', ') || 'nothing'}`);
+  else if (strays > 0) fail(`breakpoint: main.js still has ${strays} literal 699/700 outside PHONE`);
+  else ok(`breakpoint: ${jsQ} — one copy in main.js, the same query in style.css`);
+
+  // 2. The flock's colour: hue.js computes what --flock in style.css resolves to.
+  for (const scheme of ['light', 'dark']) {
+    const ctx = await browser.newContext({ viewport: { width: 1000, height: 700 }, colorScheme: scheme, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(BASE + '/?seed=1&still&hue=200', { waitUntil: 'load' }); await page.waitForTimeout(400);
+    const got = await page.evaluate(() => {
+      const c = getComputedStyle(document.querySelector('.still')).color;
+      const x = document.createElement('canvas').getContext('2d'); x.fillStyle = c; x.fillRect(0, 0, 1, 1);
+      return [...x.getImageData(0, 0, 1, 1).data].slice(0, 3);
+    });
+    const want = flockColor(scheme === 'dark', 200).match(/[0-9a-f]{2}/g).map(h => parseInt(h, 16));
+    const off = Math.max(...got.map((v, i) => Math.abs(v - want[i])));
+    off <= 3 ? ok(`flock colour (${scheme}): CSS rgb(${got}) = hue.js rgb(${want})`) : fail(`flock colour (${scheme}): CSS rgb(${got}) vs hue.js rgb(${want})`);
+    await ctx.close();
+  }
+
+  // 3. The service worker's shell: exactly what the two pages load, plus the favicon
+  //    (headless Chromium never fetches one — the icon link is checked instead).
+  const shell = [...(sw.match(/const SHELL = \[([\s\S]*?)\];/)?.[1] || '').matchAll(/'([^']+)'/g)].map(m => m[1]);
+  const icon = html.match(/<link rel="icon" href="([^"]+)"/)?.[1];
+  const pages = new Set([...loaded.home, ...loaded.notFound].filter(u => u !== '/sw.js' && !u.includes('/img/archive/')));
+  const missing = [...pages].filter(u => !shell.includes(u));
+  const extra = shell.filter(u => !pages.has(u) && u !== '/' + icon);
+  if (!shell.length) fail('shell: could not read SHELL from sw.js');
+  else if (missing.length) fail(`shell: the pages load ${missing.join(', ')} but sw.js does not precache it`);
+  else if (extra.length) fail(`shell: sw.js precaches ${extra.join(', ')}, which neither page loads`);
+  else ok(`shell: ${shell.length} entries = the two pages' loads + the favicon (${icon})`);
+
+  // 4. The font weight range: fonts.mjs clips the axis to what style.css asks for.
+  const wght = readFileSync(new URL('./fonts.mjs', import.meta.url), 'utf8').match(/WGHT = \{ min: (\d+), max: (\d+) \}/);
+  const faces = [...css.matchAll(/@font-face \{[^}]*font-weight: (\d+) (\d+)/g)].map(m => [+m[1], +m[2]]);
+  const used = [...css.replace(/@font-face \{[^}]*\}/g, '').matchAll(/font-weight: (\d+)/g)].map(m => +m[1]);
+  if (!wght) fail('weights: fonts.mjs has no WGHT range');
+  else {
+    const [min, max] = [+wght[1], +wght[2]];
+    const badFace = faces.filter(([a, b]) => a !== min || b !== max);
+    const badUse = used.filter(w => w < min || w > max);
+    if (faces.length < 2 || badFace.length) fail(`weights: @font-face ranges ${JSON.stringify(faces)} vs fonts.mjs ${min}–${max}`);
+    else if (badUse.length) fail(`weights: style.css asks for ${badUse.join(', ')}, outside the subset's ${min}–${max}`);
+    else ok(`weights: ${min}–${max} in fonts.mjs, both @font-face blocks, and every use (${[...new Set(used)].join(', ')})`);
+  }
 }
 
 // --- Lighthouse -----------------------------------------------------------

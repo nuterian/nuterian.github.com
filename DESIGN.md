@@ -441,6 +441,14 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    hint, which is why it never showed there, and neither does Playwright's Chromium on macOS, so
    the device was the only instrument. The hint is gone from both contexts; nothing measurable
    was lost, because what this page pays for is the layer's area, not its latency.
+11. **The stylesheet was two thirds prose.** Comments are about half of every shipped byte on
+   this site, and that is deliberate — `view-source` is part of the product. But the stylesheet
+   is the one file that blocks first paint, and its comments were 40 % of what it cost over the
+   wire: 14.4 KB gzipped, 8.6 KB without them. So the 26 long notes moved to
+   *The stylesheet, annotated*, below, each rule keeping a one-line pointer; the JavaScript keeps
+   every comment it has, because module scripts block nothing. Worth about 117 ms of first paint
+   at 400 kbps and ~29 ms under Lighthouse's mobile throttle; the short remarks that stayed are
+   the rest of the gap to a bare file.
 
 Instruments in `tools/`: `fps.mjs` (achieved flock frame rate — the number that matters;
 main-thread rAF deltas are vsync-pinned and cannot see any of this), `bench.html`
@@ -1083,6 +1091,13 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   first-party on our own subdomain also means blocklists don't eat it, so the numbers are
   closer to true than a hosted tracker's would be. An opened archive sheet counts as its own
   view, which is the one genuinely interesting thing this page can measure. `js/count.js`.
+  **And one more beacon, once, with how the page ran** (`perf`, at ten seconds or when the
+  page goes away, whichever first): the flock's achieved frame rate and renderer, whether it ran
+  in the worker, the pixel ratio it chose and the canvas area in megapixels, LCP, the slowest
+  interaction, and how long the page had been open. Numbers only, same rules as the count.
+  Every knob on this page — the pixel budget, the 1.5 floor, the bird counts — was tuned on
+  emulation and one desk, and every real problem it has had (the sluggish rounds, the Android
+  canvas that hid the page) was invisible to the lab. This is the instrument the lab is not.
   The dashboard is NOT public: Traefik routes only `/api/send` and `/script.js` on that host
   and everything else 503s, because Umami ships with default credentials; it is reached over
   Tailscale instead.
@@ -1136,7 +1151,7 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   remembered. They protect the least screenshot-visible behaviour on the site, and most of
   this file is a catalogue of exactly those things regressing. WebKit and Firefox get their
   own job because they take far longer to download than to run, and nothing should wait on it.
-- **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; the CSP names every inline script by hash and no origin but ours; Lighthouse 100/100/100/100 on
+- **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; the CSP names every inline script by hash and no origin but ours; the mirrors hold (the phone breakpoint is one constant in main.js and the same query in style.css, hue.js computes what `--flock` resolves to, the service worker's shell is exactly what the two pages load plus the favicon, the font weight range agrees between fonts.mjs, both `@font-face` blocks and every use — its first run found the sheet going full-bleed at 700 px while everything else turned at 699, there since the first commit); Lighthouse 100/100/100/100 on
   desktop and mobile; first load < 100 KB gzip (currently 86.7 KB); no console errors;
   reduced motion is actually still; no-JS still and `:target` work; the behaviours that
   shipped as screenshots, pinned (landscape stand-down, the thinned phone grid, the theme
@@ -1219,6 +1234,184 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   bird that is simultaneously slow, content-adjacent and clustered — the actual signature
   of a jam, as opposed to normal flocking density or a single-frame speed dip while
   turning.
+
+## The stylesheet, annotated
+
+The long notes that used to sit in `css/style.css`, one per rule, moved here on 2026-09-05 —
+see *What actually costs*, 11: the stylesheet is the one render-blocking file, and its comments
+were two thirds of its bytes over the wire. Each entry names the rule it sat beside; the rule
+keeps a one-line pointer back here. Short remarks stayed in the file. The JavaScript keeps all of
+its comments: module scripts block nothing, and `view-source` is part of the product.
+
+### One palette, written once
+
+*style.css, at `color-scheme: light dark`*
+
+One palette, written once. Every token names its light value and its dark value in the same place, and `light-dark()` picks between them from the element's used `color-scheme` — so the two themes can't drift apart in a copy-paste, which is exactly what a duplicated dark block invites. The manual override below therefore sets only `color-scheme`: switching the scheme switches every token AND the UA's own surfaces (scrollbars, form controls, the caret) in one move, which the old token-only override silently left behind on the wrong theme.
+
+### The wash's colour is the hour's own hue, so daylight is gold and the…
+
+*style.css, at `--wash: light-dark(oklch(76% 0.15 var(--hue) / calc(var(--glow) * 0.17`*
+
+The wash's colour is the hour's own hue, so daylight is gold and the small hours are blue without a second palette. --glow scales its alpha: the wash is ambient light, and there is less of it at night.
+
+The THEME picks which light: a light page is daylit and takes the hour's hue; a dark page is night, so its wash is moonlight — fixed at 260, the dark --bg's own hue, nearly drained of chroma. The clock still moves both. Tuned per theme, not symmetrically: the same wash multiplies a near-black page and merely tints a near-white one. DESIGN.md, "Light".
+
+### The hue eases between hours
+
+*style.css, at `:root`*
+
+The hue eases between hours — but NOT into the first one. The value above is a static default (the 2013 yellow) and the clock's real answer can be most of the wheel away from it: measured at 3am, the page spent 2.2 s travelling 254° from gold through green and cyan to rose, because a transition on a number interpolates the number, not the shorter way round a wheel. Every visit opened by sweeping past every hue this palette rejects. So the transition is switched on only once the first real hue is in place (main.js, one frame later): arriving in a colour, rather than tuning into it.
+
+### The manual theme switch
+
+*style.css, at `:root[data-theme='dark']`*
+
+The manual theme switch. Nothing to restate — the scheme is the palette. Except --shot-filter, which is the one token light-dark() can't carry: it isn't a colour, `filter` wants a keyword, and CSS has no `@media (color-scheme: dark)` to key a non-colour off. So the *switch* is written twice below; the *value* is still written once, above.
+
+### Asked for more contrast, the quiet things stop being quiet
+
+*style.css, at `@media (prefers-contrast: more)`*
+
+Asked for more contrast, the quiet things stop being quiet. The hairlines are 14 % alpha and the metadata greys sit ~13 % over AA — deliberate, and exactly what someone who set this preference is asking us not to do. Only the two tokens move; every other colour is already at full strength, and because they are tokens the change reaches the rules, the row numbers, the medium column, the footer and the sheet captions at once. This is the last of the four preferences the site had not answered — motion, data and scheme were already honoured, and forced-colors renders correctly with nothing to add.
+
+### overflow-x lives HERE, not only on body, so that body's own value stops
+
+*style.css, at `html`*
+
+overflow-x lives HERE, not only on body, so that body's own value stops propagating to the viewport and body clips its own children instead. That matters for the phone canvas below: absolutely positioned and 120px wider than the screen, it would otherwise widen the document and make a phone shrink-to-fit the whole page (measured: a 390px viewport reporting 450).
+
+### A modal sheet is modal: the page behind it must not scroll
+
+*style.css, at `html.sheet-open`*
+
+A modal sheet is modal: the page behind it must not scroll. <dialog> puts the sheet in the top layer and inerts the rest, but it does NOT lock the document — on a phone the archive kept scrolling away underneath the overlay. Locked on `html`, not `body`: body is `position: relative` because it is the phone canvas's containing block, so it cannot be taken out of flow. Only the y axis, so the `overflow-x: clip` above still stands, and `scrollbar-gutter: stable` means losing the scrollbar doesn't reflow the page a few pixels wider the moment a sheet opens. The no-JS `:target` path needs none of this: it covers the viewport outright.
+
+### No stylistic sets
+
+*style.css, at `-webkit-font-smoothing: antialiased`*
+
+No stylistic sets. A line here once asked for `ss01` and `cv11` ("single-storey a, open digits") and never got them: the Google Fonts files the subset came from carried no such features, so the page has always worn Geist's default a and digits — and that is the face every screenshot and og.png were approved in. Vercel's own build does have the sets (ss02 is the single-storey a, ss09 the slashed zero; cv11 does not exist), so the look is a one-token choice now, made on purpose rather than by a subsetter. See tools/fonts.mjs.
+
+### Focus that arrived by script, after a pointer
+
+*style.css, at `.quiet:focus-visible`*
+
+Focus that arrived by script, after a pointer. WebKit — Safari on the desk and on the phone — draws :focus-visible on a focus() call whatever the hand that caused it, so a sheet closed with the mouse or a tap handed its row back ringed and nudged, as if a key had been pressed (Chromium does not; both measured). main.js marks that hand-back `quiet`: the focus itself stays — it is how a screen reader finds its way back — and the mark leaves on the next keystroke or the moment the row loses focus.
+
+### Everything that answers a pointer does it in one of two ways, written…
+
+*style.css, at `.sheet .close, .sheet-bar button`*
+
+Everything that answers a pointer does it in one of two ways, written here once instead of reinvented per control:
+
+NUDGE — a thing that leads somewhere (a link, an archive row) takes the accent colour and shifts a little the way it is pointing. DISC  — a round 44 px control (the sheet's x, its arrows, the theme dot) lifts from muted to fg on a soft accent disc.
+
+Both animate colour and transform only: no interactive state on this page touches a layout property. The archive row used to animate `padding-left`, which re-solved its four-column grid on every one of the 450 ms of frames — indistinguishable to look at, and the only layout work left in a page that otherwise never reflows after load. The nudge below moves the row's children instead of its box, which is also why the li's full-width rule underneath stays exactly where it is: that border belongs to the parent, and a transform on a child cannot reach it.
+
+### The birds live in the VIEWPORT, not on the page: the canvas is fixed,…
+
+*style.css, at `#flock, .still`*
+
+The birds live in the VIEWPORT, not on the page: the canvas is fixed, and the content scrolls through their world (the worker offsets it by the scroll position). It bleeds 60px past every edge so a bird can leave the visible page, turn around off-stage, and come back — no visible rebounds. The bleed is pure off-screen paint the compositor still pays for, so it is as small as the exit still reading naturally allows; with DPR ≤ 1.5 that keeps the layer cheap.
+
+It sits ABOVE the page content (z-index higher than .hero/main/footer): the content is a soft field the birds are nudged away from, not a wall, so occasionally one drifts over the text — and since it renders on top, that reads as a bird flying over the page, not as a glitch underneath it. pointer-events stay none, so it's invisible to clicks and hover.
+
+### On a phone the flock belongs to the HERO, not to the viewport
+
+*style.css, at `@media (max-width: 699px)`*
+
+On a phone the flock belongs to the HERO, not to the viewport. The archive is full-width there — no margin, no whitespace — so a mark that followed you down the page would have no choice but to sit ON the rows you are reading. Anchored to the document instead, the canvas simply scrolls away with the hero it came from, and the archive is clean. The layer still scrolls on the compositor; it is the same box, just carried by the page instead of pinned against it. main.js stops subtracting the scroll offset to match (the world no longer moves), keyed off this very query.
+
+### The still yields to the canvas only once the flock is actually running —
+
+*style.css, at `.still`*
+
+The still yields to the canvas only once the flock is actually running — `flock-on` is set by main.js AFTER the runner starts, not by the inline `js` probe in index.html. Hiding it on `js` alone meant any failure in main.js (a stale cached copy, a bad import, an unsupported feature) left the fallback hidden and the canvas never started: an empty sky, no birds either way. Gate it on the flock, and a broken main.js degrades to the still instead of to nothing.
+
+### It fades rather than cuts, and main.js removes the node once it has
+
+*style.css, at `.still`*
+
+It fades rather than cuts, and main.js removes the node once it has. A hard swap put a composed mark on screen and replaced it, in one frame, with a flock that had just been scattered; fading, the mark dissolves into the birds arriving behind it. Opacity only — a compositor property, on a layer that is about to stop existing.
+
+### One fixed bloom where the light is (--light-x/y, set by the clock)
+
+*style.css, at `body::before`*
+
+One fixed bloom where the light is (--light-x/y, set by the clock). At z-index 0 it is under every content layer and over the page background, so --bg stays the colour contrast is measured against. It breathes on `transform` and `opacity` ONLY — compositor properties, so the gradient rasterises once and is never repainted. See DESIGN.md, "Light".
+
+### The hero fills the viewport you can actually SEE, and its text is…
+
+*style.css, at `.hero`*
+
+The hero fills the viewport you can actually SEE, and its text is anchored to the BOTTOM of that box — which makes the height the whole problem. No static unit is right, because the browser's chrome is not one shape: dvh — the current height, but only as honestly as the browser reports it. iOS Chrome opened from another app (a link tapped in Messages) lays out at the chrome-HIDDEN height while the bottom bar is on screen: the box ran ~120px long and buried the links row under the toolbar. svh — the height with chrome at its LARGEST, i.e. assuming a top bar AND a bottom bar. That same mode has no top bar, so the box came up ~46px short and the archive's first heading showed above the fold — which is not what you see once you scroll and the chrome settles, so the page appeared to have two different first impressions. visualViewport.height is neither guess: it is what is on screen right now. JS sets --vh from it, before first paint (index.html) and on every change (main.js). svh stays as the fallback here, because a wrong-by-46px hero is the right way to fail when there is no script — nothing is ever hidden.
+
+### The gutter is derived from the WIDTH, which is the wrong axis for the…
+
+*style.css, at `--gutter-y: min(var(--gutter), calc(var(--vh, 100svh) * 0.08))`*
+
+The gutter is derived from the WIDTH, which is the wrong axis for the one padding that has to share a budget with the text. On a short, wide window — 1280x360, a laptop with the window dragged flat — it took 64 px off each end of a 360 px viewport, 36% of it, and the hero grew taller than the screen it is supposed to be exactly as tall as. Vertically it is therefore whichever is smaller, the gutter or a twelfth of the height, off the same `--vh` the box is measured against so the two cannot disagree. It binds only where the viewport is genuinely short: every ordinary size still gets the full gutter.
+
+### As you scroll away, the hero text recedes; the flock doesn't
+
+*style.css, at `@supports (animation-timeline: scroll())`*
+
+As you scroll away, the hero text recedes; the flock doesn't.
+
+The range is a PERCENTAGE of the scrollable distance, not a vh figure. This page is short — a 100dvh hero over an archive of seven — so on a tall window the whole document scrolls less than one viewport height, and the hero can never leave the screen at all. Keyed to `70vh` the fade then never finished: at 1400px tall it stalled at opacity .31 with the github/linkedin/archive links still sitting there while you read the archive. A percentage is reachable by construction, whatever the window and however long the page.
+
+It ends at 0, not at a ghost — and at `visibility: hidden`, which is the part that matters. Opacity alone would leave three invisible links in the tab order, and you cannot rely on focus scrolling them back into view: on exactly the tall windows where this goes wrong they are already ON screen, so the browser has nothing to scroll. visibility takes them out of the tab order outright, and it interpolates as `visible` until the very end, so the fade still plays in full.
+
+Desktop only — hover-capable, fine-pointer devices. The fade exists for the tall window, where the hero never leaves the screen; on a phone it scrolls off by construction and the fade adds nothing. It also cannot be trusted there: iOS 26 is the first iOS with animation-timeline at all, and its address bar animates into a pill right after load, which changes the page metrics under the root scroller's timeline (WebKit bug 310210, open as of Safari 26.6). Seen on a new iPhone as the name painting and vanishing at once: the timeline read its end, and the end of this animation is `visibility: hidden`. A fade you cannot see from the wrong device is a hero you cannot see from the wrong device.
+
+### The row numbers are COUNTED, not typed
+
+*style.css, at `.rows`*
+
+The row numbers are COUNTED, not typed. They were six hardcoded spans, and a reorder desynced them from the rows they label — which has happened. Each <ol class="rows"> resets its own counter, so Making and Archive both start at 01. The span stays: it holds the grid's first column and the aria-hidden (the number is decoration — the name is the accessible label).
+
+### Each row lifts the last few pixels into place as it arrives, on its OWN
+
+*style.css, at `@supports (animation-timeline: view())`*
+
+Each row lifts the last few pixels into place as it arrives, on its OWN timeline (`view()`) — no delay chain to fall out of step with the scroll. It moves the .row, not the li: the li carries the hairline, and a rule that shifted while its neighbour's didn't would break the list's rhythm. Nothing here is a layout property. No opacity — see DESIGN.md: the metadata columns are quiet greys with 13% of headroom over AA, and a fade spends it.
+
+### …and leaves the way it came, in under half the time
+
+*style.css, at `dialog#sheet[open].closing`*
+
+…and leaves the way it came, in under half the time. It used to cut: a 12 px rise on the way in and a hard close on the way out. main.js adds `closing`, waits for this to end, and only then closes the dialog and hands the figures back (a still-open modal keeps the page inert, so the row cannot take focus until then). Skipped outright under reduced motion — the class is never set.
+
+### The theme control
+
+*style.css, at `.site-footer .theme`*
+
+The theme control. It used to be a single `·`, and a 44px hit box drawn around it with a -1rem margin: the target was technically there, but nothing about a dot says "theme", so people read the glyph as the button and aimed at 4px of it. It now shows its own surface — a hairline pill you can see the edges of — with an icon for recognition and the current mode in a word, because there are THREE states and an icon alone would be a guess. The word is the visible label and the aria-label contains it, so the accessible name and what you can read still agree.
+
+### A target you can hit and a shape you can see are two different…
+
+*style.css, at `.site-footer .theme`*
+
+A target you can hit and a shape you can see are two different requirements, and this control needs both at different sizes. The box stays 44 px tall, so the target is what it always was. The PILL is drawn by a pseudo-element sized to the line of type it sits in — 28 px against the dateline's 20 — because at 44 it was a button parked in a line of quiet mono text, twice the height of everything beside it, and read as the loudest thing in the footer. The remaining 8 px above and below are forgiving slop, not the affordance: the pill, the icon and the word are all still visible, which is the whole point of the redesign that gave this control a surface in the first place.
+
+### Prev/next swaps one project's figures for another's inside the same open
+
+*style.css, at `@media (prefers-reduced-motion: no-preference)`*
+
+Prev/next swaps one project's figures for another's inside the same open dialog. Naming only that area means the crossfade is the figures changing, not the page turning over: the bar, the backdrop and the flock behind it all hold still, which is why the root snapshot's own animation is switched off (the `isolation`/`display` pair is what makes turning it off actually paint). Opening a sheet starts no transition at all — only step() does.
+
+### Nobody prints a web page; the person who does gets one that was…
+
+*style.css, at `@media print`*
+
+Nobody prints a web page; the person who does gets one that was expecting them. A calling card, on one sheet (measured, A4 and Letter): the flock's own still as the letterhead — already in the document, so it costs no download — the name, the line, the addresses written out because you cannot click paper, and the work as a list. It prints in the LIGHT palette whatever theme is on screen, and one declaration says so, because every token is a `light-dark()` pair and the scheme moves the whole palette.
+
+### Making's rows lead somewhere real, and on paper a link is only as good…
+
+*style.css, at `#making .row`*
+
+Making's rows lead somewhere real, and on paper a link is only as good as the address beside it. `attr()` can only read the element carrying the attribute, and the <a> is the only thing here with an href — so the address is the row's own ::after. It takes the column the arrow just vacated rather than a line of its own: set under the name it cost two lines, and two lines is exactly what tipped US Letter onto a second sheet. On the line, it costs nothing, and the card is one page again on both papers.
 
 ## Files
 
