@@ -14,8 +14,8 @@ A boids simulation (Reynolds, 1986) drawn as small birds on a canvas that covers
 the birds, not the viewport** — see *What actually costs* below.
 It runs in a **Web Worker on an OffscreenCanvas** and renders through **WebGL instanced
 quads — one static unit quad, one ~8 KB dynamic buffer, one draw call per frame**, with
-edge anti-aliasing done in the fragment shader (no MSAA). No fallback: without usable
-GL the page keeps its still. The main thread only sends small messages (pointer, where home is).
+edge anti-aliasing done in the fragment shader (no MSAA) and Canvas 2D as an automatic
+fallback. The main thread only sends small messages (pointer, where home is).
 
 - **Rules, in order of weight:** separation, alignment, cohesion, and *you* — a moving
   pointer startles; content merely nudges (see below).
@@ -388,8 +388,8 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
 5. **The renderer must refuse a software GL context.** `failIfMajorPerformanceCaveat`
    is set on the WebGL request: on machines where "WebGL" means SwiftShader (blocklisted
    GPUs, most VMs, headless), the GL path managed 23 draws/s against a 60 Hz rAF while
-   the Canvas 2D fallback kept pace. There is no 2D path any more (item 13): those
-   machines keep the still, the answer the page already had for reduced motion. Real GPUs are unaffected. The context also declines the buffers it never
+   the Canvas 2D fallback keeps pace — on those machines 2D is not the degradation, it
+   is the fix. Real GPUs are unaffected. The context also declines the buffers it never
    uses (`depth: false, stencil: false`) — it asked for `desynchronized` too, until item 10 — and the canvas
    bleed shrank 90 → 60 px — the bleed is off-screen paint the compositor pays for at
    full price, ~12 % of the layer at 1440×900.
@@ -472,13 +472,13 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    outlives one that never comes. One path now — the worker with WebGL — or the still. The
    gates drive the worker through `flock.step(n)` and `flock.snapshot()`, so they test what
    visitors get. About a hundred lines gone, two concepts with them.
-   **Its first day in CI corrected one thing.** WebKit and Firefox on a Linux runner have only
-   software GL, which the painter refused on purpose — and with the 2D painter gone, the flock
-   never started there: the engines gate reported ✗ twice, and it was right, because a gate
-   that cannot start the flock proves nothing about either engine. So software GL is now asked
-   for a second time without the caveat and taken, slowly (item 5's 23 draws/s), with the
-   renderer named `webgl2 (software)` so the perf beacon can say how many real visitors that
-   is and how they fare. If the answer is many and badly, the still is one line away.
+   **Its first day in CI corrected half of it.** WebKit and Firefox on a Linux runner get no GL
+   in a worker at all, so with the 2D painter gone the flock never started there — the engines
+   gate reported ✗, and it was right: it had been passing on that painter all along
+   ("flock alive · worker · canvas2d"), which is also where real visitors on blocklisted GPUs
+   and VMs stand, and item 5's measurement says 2D keeps pace where software GL manages 23
+   draws/s. So the 2D painter is back, load-bearing, and only the main-thread runner stayed
+   deleted. Two rungs became one; the argument for removing the last one was wrong on data.
 
 Instruments in `tools/`: `fps.mjs` (achieved flock frame rate — the number that matters;
 main-thread rAF deltas are vsync-pinned and cannot see any of this), `perf.mjs` (journey long-task benchmark),
@@ -663,7 +663,7 @@ fifth 9 against 12, and the shift correlates with predicted shade at r = 0.62 ac
 birds. At noon the same numbers are 2.9 and 1.5 — the effect is ~5.7× weaker, which is
 elevation doing its job.
 
-The 2D painter — gone since item 13 — ran the same `shade()` on the CPU, folded into the six opacity buckets it
+`Canvas2DPainter` runs the same `shade()` on the CPU, folded into the six opacity buckets it
 already sorts birds into: a wing catching the light lands its bird a bucket brighter. It is
 per bird rather than per segment there — both wings are one sub-path — and quantised to six
 steps, so it is coarse. It is the fallback; it only has to be *right*, not equal.
@@ -1133,7 +1133,7 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
 - No build step for the site. No framework, and no third-party requests
   (the network tab is this repo). `view-source` is commented and unminified.
 - **`flock.js` exports only what is imported.** It offered eleven symbols and five had no
-  consumer anywhere: `DEFAULTS`, `rng`, `wingPose`, `GLPainter`. `DEFAULTS`
+  consumer anywhere: `DEFAULTS`, `rng`, `wingPose`, `GLPainter`, `Canvas2DPainter`. `DEFAULTS`
   became vestigial the moment the page stopped importing the simulation (below) and nothing
   noticed. They are internal now. Almost no bytes — the point is that a public export is a
   promise, and five of them were promises to nobody.
@@ -1161,8 +1161,8 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   - `flock-on` (which stands the no-JS still down) is still set only once the flock is
     genuinely live — immediately on the worker path, and after the import resolves on the
     other. A simulation that fails to load must not hide the still that replaces it.
-- Everything is behind feature detection: no Worker, no OffscreenCanvas, no usable WebGL →
-  the still (item 13; there used to be a main-thread runner and a Canvas 2D painter);
+- Everything is behind feature detection: no Worker or no OffscreenCanvas → the still (item 13; there
+  used to be a main-thread runner); no usable WebGL → Canvas 2D;
   no View Transitions → plain; no `<dialog>` → `:target`; no script → still.
 - **All four gates run in CI**, in three jobs. The WebKit/Firefox job **retries once, and never over a
   finding**. It is flaky on the runner in more than one way and none of them has been the

@@ -30,7 +30,7 @@ for (const [name, type] of [['webkit', webkit], ['firefox', firefox]]) {
       await page.waitForFunction(() => window.flock && window.flock.fps > 0, null, { timeout: 8000 });
       where = await page.evaluate(() => window.flock.where);
       ok(`flock alive · ${where}`);
-    } catch { fail(`flock never drew a frame (${where})`); }
+    } catch { where = await page.evaluate(() => window.flock?.where).catch(() => where); fail(`flock never drew a frame (renderer: ${where})`); }
     errors.length ? fail(`errors: ${errors.join(' | ')}`) : ok('no console/page/request errors');
     if (thirdParty.length) fail(`third-party requests: ${thirdParty.join(', ')}`);
 

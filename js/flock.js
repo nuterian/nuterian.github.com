@@ -283,8 +283,9 @@ export class Flock {
     this.fx = new Float32Array(n);
     this.fy = new Float32Array(n);
     this._next = new Int32Array(n);        // spatial-hash chains (reused every step)
-    this._tips = new Float32Array(n * 4);  // wingtip scratch for the painter
+    this._tips = new Float32Array(n * 4);  // wingtip scratch for the painters
     this._alp = new Float32Array(n);       // per-bird alpha scratch (0 = culled)
+    this._buck = new Uint8Array(n);        // opacity buckets (canvas 2d painter)
     this._inst = new Float32Array(n * 10); // instance scratch (webgl painter)
     this.n = n;
     if (this.perchBird >= n) this.perchBird = -1;  // ?n= shrank the flock out from under it
@@ -985,8 +986,8 @@ export class Flock {
   // --- Rendering ------------------------------------------------------------
 
 
-  // One geometry pass per frame into reused scratch; the painter (below) only
-  // reads it. Alpha 0 means culled.
+  // One geometry pass per frame into reused scratch; the painters (WebGL or
+  // Canvas 2D, below) only read it. Alpha 0 means culled.
   geometry() {
     const { n, x, y, hx, hy, op, fp, ef, br, bk, p } = this;
     const tips = this._tips, alp = this._alp;
@@ -1029,16 +1030,11 @@ class GLPainter {
       // stencil: flat strokes want a bare colour buffer, and every buffer not
       // allocated is bandwidth the compositor never spends. desynchronized
       // lets the browser skip a compositor copy where it can.
-      // failIfMajorPerformanceCaveat first: it refuses a SOFTWARE GL context
-      // (SwiftShader, llvmpipe — blocklisted GPUs, many VMs, every CI runner).
-      // Refused, the same context is asked for again WITHOUT the caveat and
-      // taken, slowly — measured headless: 23 draws/s against a 60 Hz rAF —
-      // and the renderer says so ('webgl2 (software)'), which the perf beacon
-      // carries home. The 2D painter that used to take these machines is gone
-      // (DESIGN.md, "What actually costs", 13); its first day in CI showed
-      // that WebKit and Firefox on a Linux runner ARE such machines, and a
-      // gate that cannot start the flock there proves nothing about either
-      // engine. So software GL runs. The beacon decides whether it should.
+      // failIfMajorPerformanceCaveat is the important one: it refuses a
+      // SOFTWARE GL context (SwiftShader — blocklisted GPUs, many VMs). On
+      // those machines "WebGL" is the slow path — measured headless: 23
+      // draws/s against a 60 Hz rAF, while the Canvas 2D fallback keeps up —
+      // so failing over to 2D is not a degradation, it is the fix.
       // No `desynchronized`. It was asked for once, for a frame less of latency
       // the flock never needed — this is an ambient animation, not a pen — and
       // on Android Chrome the low-latency path puts a translucent canvas on a
@@ -1048,14 +1044,11 @@ class GLPainter {
       const opts = { alpha: true, antialias: false, depth: false, stencil: false,
         failIfMajorPerformanceCaveat: true,
         powerPreference: 'low-power', premultipliedAlpha: true };
-      let soft = false;
-      let gl = canvas.getContext('webgl2', opts) || canvas.getContext('webgl', opts);
-      if (!gl) { soft = true; const o = { ...opts, failIfMajorPerformanceCaveat: false }; gl = canvas.getContext('webgl2', o) || canvas.getContext('webgl', o); }
+      const gl = canvas.getContext('webgl2', opts) || canvas.getContext('webgl', opts);
       if (!gl) return null;
       const ext = gl.vertexAttribDivisor ? null : gl.getExtension('ANGLE_instanced_arrays');
       if (!gl.vertexAttribDivisor && !ext) return null;
       const p = new GLPainter(canvas, gl, ext);
-      if (soft) p.name += ' (software)';
       return p.ok ? p : null;
     } catch { return null; }
   }
@@ -1105,7 +1098,7 @@ class GLPainter {
       }`));
     gl.linkProgram(prog);
     this.ok = gl.getProgramParameter(prog, gl.LINK_STATUS);
-    if (!this.ok) return; // GLPainter.try() answers null: the page keeps its still
+    if (!this.ok) return; // GLPainter.try() will fall back to Canvas 2D
     gl.useProgram(prog);
     this.uRes = gl.getUniformLocation(prog, 'res');
     this.uHw = gl.getUniformLocation(prog, 'hw');
@@ -1162,11 +1155,65 @@ class GLPainter {
   }
 }
 
-// There is no second painter. A Canvas 2D fallback used to live here for the
-// machines where WebGL means SwiftShader (it kept pace where GL managed 23
-// draws/s); the page has a better answer for them now — the composed still it
-// already shows to reduced motion and to no script — and the perf beacon
-// counts how many there are. One painter, or none (see Runner).
+/*
+ * Canvas2DPainter — the fallback when WebGL isn't available. Same geometry,
+ * batched into six opacity buckets so globalAlpha changes rarely.
+ *
+ * Deleted once (2026-09-05) as a rung nobody stood on, and back the next day:
+ * WebKit and Firefox on a Linux runner get no GL in a worker at all, so the
+ * engines gate could not start the flock — and it had been passing on this
+ * painter all along ("flock alive · worker · canvas2d"). Real visitors on
+ * blocklisted GPUs and VMs stand here too, and DESIGN.md's own measurement
+ * says this keeps pace where software GL manages 23 draws/s. Load-bearing.
+ */
+class Canvas2DPainter {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d', { alpha: true });   // no desynchronized — see GLPainter.create
+    this.name = 'canvas2d';
+    this.dpr = 1;
+  }
+
+  resize(w, h, dpr) {
+    this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
+    this.dpr = dpr;
+  }
+
+  draw(f, { color = '#888', alpha = 1, width = 1.25, w, h,
+            light = [0, -1], glint = 0 }) {
+    const ctx = this.ctx, dpr = this.dpr;
+    ctx.clearRect(0, 0, w * dpr, h * dpr);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineWidth = width; ctx.strokeStyle = color;
+    const { n, x, y } = f, tips = f._tips, alp = f._alp, buck = f._buck;
+    const buckets = 6, lx = light[0], ly = light[1];
+    // Same shading, but per BIRD: both wings share one sub-path here, so the
+    // brighter of the two picks the bucket — catching the light is a step up.
+    for (let i = 0; i < n; i++) {
+      if (alp[i] === 0) { buck[i] = 255; continue; }
+      const o = i * 4;
+      const s = glint === 0 ? 0 : Math.max(shade(tips[o], tips[o + 1], lx, ly, glint),
+                                           shade(tips[o + 2], tips[o + 3], lx, ly, glint));
+      buck[i] = Math.min(buckets - 1, (alp[i] * (1 + s) * buckets) | 0);
+    }
+    for (let b = 0; b < buckets; b++) {
+      ctx.globalAlpha = alpha * ((b + 0.5) / buckets);
+      ctx.beginPath();
+      let any = false;
+      for (let i = 0; i < n; i++) {
+        if (buck[i] !== b) continue;
+        any = true;
+        ctx.moveTo(x[i] + tips[i * 4], y[i] + tips[i * 4 + 1]);
+        ctx.lineTo(x[i], y[i]);
+        ctx.lineTo(x[i] + tips[i * 4 + 2], y[i] + tips[i * 4 + 3]);
+      }
+      if (any) ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
 const rgbOf = (hex) => {
   const c = parseInt(hex.slice(1), 16);
   return [(c >> 16 & 255) / 255, (c >> 8 & 255) / 255, (c & 255) / 255];
@@ -1178,9 +1225,7 @@ const rgbOf = (hex) => {
 export class Runner {
   constructor(canvas, { raf = globalThis.requestAnimationFrame.bind(globalThis) } = {}) {
     this.canvas = canvas;
-    // null when there is no usable GL: the Runner then answers `init` with
-    // renderer 'none' and does nothing else, and the page keeps its still.
-    this.painter = GLPainter.try(canvas);
+    this.painter = GLPainter.try(canvas) || new Canvas2DPainter(canvas);
     this.raf = raf;
     this.flock = null;
     // light: unit screen vector at the sun (or moon); lit: what a lit wing turns.

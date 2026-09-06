@@ -9,8 +9,8 @@ My personal site — a calling card, and a small playground.
 The birds are a boids simulation drawn as ink strokes. They run in a Web Worker
 on an OffscreenCanvas, render as instanced quads in WebGL — one draw call a
 frame — and settle into the brush mark from the 2013 site. Everything degrades:
-no Worker, no OffscreenCanvas or no usable WebGL falls back to a still image,
-as does no script at all, and no network still works, because a service worker keeps
+no Worker or no OffscreenCanvas falls back to a still image, no WebGL to
+Canvas 2D, no script to the still, and no network at all still works, because a service worker keeps
 the whole site on disk.
 
 No build step, no framework, no dependencies. Three files matter: `index.html`,
