@@ -80,9 +80,7 @@ function homeSize() {
   return { w: bw, h: bw / aspect };
 }
 post({ type: 'home', points, aspect, size: homeSize() });
-addEventListener('resize', () => post({ type: 'home-size', size: homeSize() }), { passive: true });
-
-addEventListener('resize', () => post({ type: 'resize', dpr, ...world() }), { passive: true });
+addEventListener('resize', () => post({ type: 'layout', dpr, ...world(), scroll: 0, rects: [], homeSize: homeSize() }), { passive: true });
 addEventListener('pointermove', e => {
   if (e.pointerType === 'touch') return;
   const r = canvas.getBoundingClientRect();

@@ -4,7 +4,7 @@
  * A small boids simulation plus the renderer that draws it as ink strokes.
  * It is deliberately pure: no DOM, no globals. The same module runs inside a
  * Worker driving an OffscreenCanvas — this file is the worker script, see the
- * end — or on the main thread when that isn't available (see main.js).
+ * end — or on the main thread, which is how the 404 page runs it (404.js).
  * Everything talks to it through `Runner.handle(message)`.
  *
  * Rules, in order of how much they matter:
@@ -283,9 +283,8 @@ export class Flock {
     this.fx = new Float32Array(n);
     this.fy = new Float32Array(n);
     this._next = new Int32Array(n);        // spatial-hash chains (reused every step)
-    this._tips = new Float32Array(n * 4);  // wingtip scratch for the painters
+    this._tips = new Float32Array(n * 4);  // wingtip scratch for the painter
     this._alp = new Float32Array(n);       // per-bird alpha scratch (0 = culled)
-    this._buck = new Uint8Array(n);        // opacity buckets (canvas 2d painter)
     this._inst = new Float32Array(n * 10); // instance scratch (webgl painter)
     this.n = n;
     if (this.perchBird >= n) this.perchBird = -1;  // ?n= shrank the flock out from under it
@@ -986,8 +985,8 @@ export class Flock {
   // --- Rendering ------------------------------------------------------------
 
 
-  // One geometry pass per frame into reused scratch; the painters (WebGL or
-  // Canvas 2D, below) only read it. Alpha 0 means culled.
+  // One geometry pass per frame into reused scratch; the painter (below) only
+  // reads it. Alpha 0 means culled.
   geometry() {
     const { n, x, y, hx, hy, op, fp, ef, br, bk, p } = this;
     const tips = this._tips, alp = this._alp;
@@ -1033,8 +1032,8 @@ class GLPainter {
       // failIfMajorPerformanceCaveat is the important one: it refuses a
       // SOFTWARE GL context (SwiftShader — blocklisted GPUs, many VMs). On
       // those machines "WebGL" is the slow path — measured headless: 23
-      // draws/s against a 60 Hz rAF, while the Canvas 2D fallback keeps up —
-      // so failing over to 2D is not a degradation, it is the fix.
+      // draws/s against a 60 Hz rAF — and a refusal means the page keeps its
+      // composed still, which is the better frame (Runner).
       // No `desynchronized`. It was asked for once, for a frame less of latency
       // the flock never needed — this is an ambient animation, not a pen — and
       // on Android Chrome the low-latency path puts a translucent canvas on a
@@ -1098,7 +1097,7 @@ class GLPainter {
       }`));
     gl.linkProgram(prog);
     this.ok = gl.getProgramParameter(prog, gl.LINK_STATUS);
-    if (!this.ok) return; // GLPainter.try() will fall back to Canvas 2D
+    if (!this.ok) return; // GLPainter.try() answers null: the page keeps its still
     gl.useProgram(prog);
     this.uRes = gl.getUniformLocation(prog, 'res');
     this.uHw = gl.getUniformLocation(prog, 'hw');
@@ -1155,59 +1154,11 @@ class GLPainter {
   }
 }
 
-/*
- * Canvas2DPainter — the fallback when WebGL isn't available. Same geometry,
- * batched into six opacity buckets so globalAlpha changes rarely.
- */
-class Canvas2DPainter {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: true });   // no desynchronized — see GLPainter.create
-    this.name = 'canvas2d';
-    this.dpr = 1;
-  }
-
-  resize(w, h, dpr) {
-    this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
-    this.dpr = dpr;
-  }
-
-  draw(f, { color = '#888', alpha = 1, width = 1.25, w, h,
-            light = [0, -1], glint = 0 }) {
-    const ctx = this.ctx, dpr = this.dpr;
-    ctx.clearRect(0, 0, w * dpr, h * dpr);
-    ctx.save();
-    ctx.scale(dpr, dpr);
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.lineWidth = width; ctx.strokeStyle = color;
-    const { n, x, y } = f, tips = f._tips, alp = f._alp, buck = f._buck;
-    const buckets = 6, lx = light[0], ly = light[1];
-    // Same shading, but per BIRD: both wings share one sub-path here, so the
-    // brighter of the two picks the bucket — catching the light is a step up.
-    for (let i = 0; i < n; i++) {
-      if (alp[i] === 0) { buck[i] = 255; continue; }
-      const o = i * 4;
-      const s = glint === 0 ? 0 : Math.max(shade(tips[o], tips[o + 1], lx, ly, glint),
-                                           shade(tips[o + 2], tips[o + 3], lx, ly, glint));
-      buck[i] = Math.min(buckets - 1, (alp[i] * (1 + s) * buckets) | 0);
-    }
-    for (let b = 0; b < buckets; b++) {
-      ctx.globalAlpha = alpha * ((b + 0.5) / buckets);
-      ctx.beginPath();
-      let any = false;
-      for (let i = 0; i < n; i++) {
-        if (buck[i] !== b) continue;
-        any = true;
-        ctx.moveTo(x[i] + tips[i * 4], y[i] + tips[i * 4 + 1]);
-        ctx.lineTo(x[i], y[i]);
-        ctx.lineTo(x[i] + tips[i * 4 + 2], y[i] + tips[i * 4 + 3]);
-      }
-      if (any) ctx.stroke();
-    }
-    ctx.restore();
-  }
-}
-
+// There is no second painter. A Canvas 2D fallback used to live here for the
+// machines where WebGL means SwiftShader (it kept pace where GL managed 23
+// draws/s); the page has a better answer for them now — the composed still it
+// already shows to reduced motion and to no script — and the perf beacon
+// counts how many there are. One painter, or none (see Runner).
 const rgbOf = (hex) => {
   const c = parseInt(hex.slice(1), 16);
   return [(c >> 16 & 255) / 255, (c >> 8 & 255) / 255, (c & 255) / 255];
@@ -1219,7 +1170,9 @@ const rgbOf = (hex) => {
 export class Runner {
   constructor(canvas, { raf = globalThis.requestAnimationFrame.bind(globalThis) } = {}) {
     this.canvas = canvas;
-    this.painter = GLPainter.try(canvas) || new Canvas2DPainter(canvas);
+    // null when there is no usable GL: the Runner then answers `init` with
+    // renderer 'none' and does nothing else, and the page keeps its still.
+    this.painter = GLPainter.try(canvas);
     this.raf = raf;
     this.flock = null;
     // light: unit screen vector at the sun (or moon); lit: what a lit wing turns.
@@ -1238,6 +1191,7 @@ export class Runner {
   }
 
   handle(m) {
+    if (!this.painter) { if (m.type === 'init') this.onstats?.({ fps: 0, n: 0, renderer: 'none', p: {} }); return; }
     const f = this.flock;
     switch (m.type) {
       case 'init': {
@@ -1250,42 +1204,46 @@ export class Runner {
         this._report(0);   // so the page can answer for the flock before the first second
         break;
       }
-      case 'resize':
+      // The whole layout in one message — size and ratio, scroll offset, the
+      // content walls, the mark's ideal size — because the page never has one
+      // without the others. It used to be four verbs, each settling the still
+      // by its own count.
+      case 'layout':
         this.dpr = m.dpr; this.w = m.w; this.h = m.h;
         this.painter.resize(m.w, m.h, m.dpr);
-        f?.resize(m.w, m.h); this.dirty = true; if (this.still) this.draw();
+        if (f) { f.resize(m.w, m.h); f.scroll = m.scroll || 0; f.obstacles = m.rects || []; if (m.homeSize) f.setHomeSize(m.homeSize); }
+        this.dirty = true; if (this.still) f ? this.settle(180) : this.draw();
         break;
-      case 'style': this._style(m.style); this.dirty = true; if (this.still) this.draw(); break;
+      // The colour and the hour's daylight travel together: same clock, same beat.
+      case 'style': this._style(m.style); if (m.day != null) f?.setDaylight(m.day); this.dirty = true; if (this.still) this.draw(); break;
       case 'pointer': f?.setPointer(m.x, m.y, m.on); break;
       case 'attract': f?.attract(m.x, m.y, m.r, m.k, m.life, m.id); break;
       case 'gravity': if (f) { f.gravity.x = m.x; f.gravity.y = m.y; } break;
-      case 'obstacles': if (f) { f.obstacles = m.rects; if (this.still) this.settle(120); } break;
       case 'scroll': if (f) f.scroll = m.y; break;
-      case 'snapshot': this.onsnapshot?.({ x: [...f.x], y: [...f.y], vx: [...f.vx], vy: [...f.vy], st: [...f.st], scroll: f.scroll, obstacles: f.obstacles, homeBox: f.homeBox ? { ...f.homeBox } : null, homeFit: f.homeFit, perch: f.perch ? { ...f.perch } : null, w: f.w, h: f.h }); break;
-      case 'home': f?.setHome(m.points, m.aspect, m.size); if (this.still) this.settle(); break;
-      case 'home-size': f?.setHomeSize(m.size); if (this.still) this.settle(180); break;
-      case 'home-off': f?.clearHome(); break;
-      case 'lure': if (f) f.homeLure = m.at || null; break;
+      // Everything the gates read back (check.mjs, crowd.mjs), off the worker.
+      case 'snapshot': this.onsnapshot?.({ x: [...f.x], y: [...f.y], vx: [...f.vx], vy: [...f.vy], st: [...f.st], scroll: f.scroll, obstacles: f.obstacles, homeBox: f.homeBox ? { ...f.homeBox } : null, homeFit: f.homeFit, homeOut: f.homeOut, homeReq: f.home ? { ...f.home.size } : null, homePoints: f.home ? f.home.points.length / 2 : 0, perch: f.perch ? { ...f.perch } : null, w: f.w, h: f.h }); break;
+      // A home with no points is no home.
+      case 'home': if (m.points) { f?.setHome(m.points, m.aspect, m.size); if (this.still) this.settle(); } else f?.clearHome(); break;
+      // A lure is a place and the size the mark condenses to on the way there.
+      case 'lure': if (f) { f.homeLure = m.at || null; if (m.size) f.setHomeSize(m.size); } break;
       case 'perch': f?.setPerch(m.at || null); break;
       case 'tempo': if (f) f.tempo = m.value; break;
       case 'count': f?.setCount(m.value); break;
       case 'params': if (f) Object.assign(f.p, m.params); break;
       case 'season': f?.season(m.season); break;
-      case 'daylight': f?.setDaylight(m.value); break;
-      // Time you were not watching. The loop stops when the tab hides, so coming
-      // back used to resume the exact frozen frame you left — the one thing a
-      // flock should never do. The page says how long you were gone and the
-      // simulation is run forward by it, capped: birds have wandered, a couple
-      // are out on laps, the mark may have moved. Nothing is drawn until the
-      // catch-up finishes, so it costs one frame, not a visible fast-forward.
-      case 'catchup': {
-        if (!f || this.still) break;
-        const n = Math.min(Math.round((m.seconds || 0) / STEP), CATCHUP_MAX);
-        for (let i = 0; i < n; i++) f._step(STEP);
+      // Coming back carries the time you were not watching. The loop stops when
+      // the tab hides, so returning used to resume the exact frozen frame you
+      // left — the one thing a flock should never do. The simulation is run
+      // forward by the time away, capped: birds have wandered, a couple are out
+      // on laps, the mark may have moved. Nothing is drawn until the catch-up
+      // finishes, so it costs one frame, not a visible fast-forward.
+      case 'visible':
+        if (!m.value) { this.stop(); break; }
+        if (f && !this.still && m.away > 1) { const n = Math.min(Math.round(m.away / STEP), CATCHUP_MAX); for (let i = 0; i < n; i++) f._step(STEP); }
+        this.start();
         break;
-      }
-      case 'visible': m.value ? this.start() : this.stop(); break;
-      case 'step': if (this.still && f) { f.advance(m.dt || STEP); this.draw(); } break;
+      // Still mode, stepped by hand: how the gates make a frame deterministic.
+      case 'step': if (this.still && f) { for (let i = 0, n = m.n || 1; i < n; i++) f.advance(m.dt || STEP); this.draw(); } break;
     }
   }
 

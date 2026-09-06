@@ -8,21 +8,18 @@
  *   4. The archive: rows → <dialog>, deep links, keyboard, swipe.
  *   5. Small things: footer arrow, console, window.flock.
  *
- * Everything degrades: no Worker → main thread; no OffscreenCanvas → same;
- * reduced motion → one still frame; no script → the inline SVG still.
+ * Everything degrades to the same place. No Worker, no OffscreenCanvas, no
+ * usable WebGL, reduced motion, no script at all: the inline SVG still, the
+ * mark already composed. One path, or the still.
  */
 
-// Note what is NOT imported here: flock.js. On the path almost everyone takes
-// the simulation runs in the worker, and the page downloading a copy it will
-// never execute was the single largest item on this page — 22.7 KB, paid twice,
-// because the worker fetches it too. The page needs the mark (which lives in
-// mark.js, where this now asks for it), and the Runner ONLY if the worker path
-// fails, so that one is fetched at the moment it is needed and not before.
-// The worker IS flock.js: the module installs its own onmessage when it finds
-// itself in a worker scope, so the flock is one fetch away from this file, not
-// two — there used to be a ten-line flock.worker.js in between, and each hop
-// on that path is a full round trip the birds wait for (measured: −165 ms to
-// first birds at 4 Mbps / 150 ms RTT, first paint untouched).
+// Note what is NOT imported here: flock.js. It IS the worker — the module
+// installs its own onmessage when it finds itself in a worker scope — so the
+// page never downloads a copy it would not run (that used to be 22.7 KB, paid
+// twice) and the flock is one fetch away from this file, not two (there used
+// to be a ten-line flock.worker.js in between; each hop on that path is a
+// round trip the birds wait for — measured, −165 ms to first birds at 4 Mbps).
+// The page needs only the mark, which lives in mark.js.
 import { MARK, MARK_ASPECT, markSize } from './mark.js';
 import { hueAt } from './hue.js';
 import { setTheme as applyTheme, nextTheme, lightStyle, keepViewportHeight } from './theme.js';
@@ -41,13 +38,11 @@ const PHONE = '(max-width: 699px)';
 const heroBound = matchMedia(PHONE);
 const vitals = watchVitals();   // LCP and the slowest interaction, for the perf beacon below
 
-// Send a message to wherever the flock lives (§2). Until it lives anywhere,
-// messages wait in line: the worker path replaces this within the same tick,
-// but the main-thread fallback has to load the simulation first.
+// Send a message to the flock (§2). Until the worker exists, messages wait in
+// line and are flushed after `init`, which must arrive first.
 const pending = [];
 let post = m => pending.push(m);
 const flush = () => { for (const m of pending.splice(0)) post(m); };
-let inWorker = false;
 let stats = { fps: 0, n: 0 };
 
 // Archive state (used across sections; the archive itself is §4).
@@ -156,22 +151,27 @@ function measureWorld() {
   world = { w: Math.max(1, Math.round(r.width)), h: Math.max(1, Math.round(r.height)) };
   return world;
 }
-// Measured NOW, not at init. `homeSize()` is a function of the canvas's width,
-// and on the main-thread path init happens after an await — so a home message
-// composed before then would have carried a mark sized against the placeholder
-// 1×1 world. It did: the landscape gate caught a 0.66 px mark.
+// Measured NOW, before any message is composed: `homeSize()` is a function of
+// the canvas's width, and a home message composed against the placeholder 1×1
+// world once carried a 0.66 px mark (the landscape gate caught it).
 measureWorld();
-// The content walls, in document(+60px bleed) space — sent once per layout; the
+// The content walls, in document(+60px bleed) space — read once per layout; the
 // worker subtracts the live scroll offset, so scrolling reads no layout.
-function sendObstacles() {
+function obstacleRects() {
   const wide = !heroBound.matches;
-  const rects = $$('[data-obstacle]')
+  return $$('[data-obstacle]')
     .filter(el => wide || !el.dataset.obstacleWide)
     .map(el => {
       const r = el.getBoundingClientRect();
       return { x: r.left + 60, y: r.top + scrollY + 60, w: r.width, h: r.height };
     });
-  post({ type: 'obstacles', rects });
+}
+// The whole layout in one message: the canvas's size and ratio, the scroll
+// offset, the walls and the mark's ideal size. Sent at startup and on resize;
+// it used to be four messages that never travelled apart.
+function sendLayout() {
+  const { w, h } = measureWorld();
+  post({ type: 'layout', dpr: dpr(), w, h, scroll: scrollOffset(), rects: obstacleRects(), homeSize: homeSize() });
 }
 // What the canvas costs is the number of device pixels the compositor moves
 // each frame — the layer's AREA, not the ratio. A phone's canvas is a quarter
@@ -200,11 +200,11 @@ const season = params.get('season') || (month === 11 ? 'snow' : null);
 function pushStyle(extra) {
   const r = lightStyle(clock(), hue, pinnedMoon);
   light = r.light;
-  post?.({ type: 'style', style: { ...r.style, ...extra } });
-  // Same clock, same beat: this runs at load, on the hourly tick and whenever
-  // the theme changes, so the flock's temperament drifts with the light rather
-  // than on a timer of its own. `?hour=` pins both at once.
-  post?.({ type: 'daylight', value: r.light.day });
+  // The colour and the hour's daylight in one message — same clock, same beat:
+  // this runs at load, on the tick and whenever the theme changes, so the
+  // flock's temperament drifts with the light rather than on a timer of its
+  // own. `?hour=` pins both at once.
+  post?.({ type: 'style', style: { ...r.style, ...extra }, day: r.light.day });
 }
 
 function initMessage() {
@@ -212,48 +212,30 @@ function initMessage() {
   return { type: 'init', dpr: dpr(), w, h, count: TARGET, seed, still: STILL, season, params: {} };
 }
 
-let snapshotResolve = null; // dev: window.flock.snapshot() — see tools/crowd.mjs
-let mainRunner = null; // only when the flock runs on the main thread
-// The fallback, and the only place the page ever loads the simulation itself.
-// It is async because of that, which is why `post` queues: everything below
-// carries on addressing a flock that is still arriving.
-async function startMainThread() {
-  inWorker = false;
-  post = m => pending.push(m);   // a dead worker may have been holding this
-  const { Runner } = await import('./flock.js');
-  const runner = mainRunner = new Runner(canvas);
-  runner.onstats = s => { stats = s; };
-  runner.ondraw = live;
-  post = m => runner.handle(m);
+let snapshotResolve = null; // window.flock.snapshot() — the gates read the flock through it
+// One path: the worker, with WebGL — or the still. There were two more rungs
+// once, the simulation on the main thread when there was no worker or no
+// OffscreenCanvas, and Canvas 2D when there was no usable GL, and each carried
+// its own state, its own test switch and a gate built to reach it. Every
+// browser that lacks the first has lacked it since 2023, the perf beacon
+// counts the rest, and the page already has the right answer for all of them:
+// the still stays until the worker's first draw, and outlives one that never
+// comes (live(), below). DESIGN.md, "What actually costs", 13.
+function startWorker() {
+  if (!('transferControlToOffscreen' in canvas) || typeof Worker === 'undefined') { post = () => {}; return; }
+  const worker = new Worker(new URL('./flock.js', import.meta.url), { type: 'module' });
+  const off = canvas.transferControlToOffscreen();
+  worker.postMessage({ type: 'canvas', canvas: off }, [off]);
+  worker.onmessage = ({ data }) => {
+    if (data.type === 'stats') stats = data;
+    else if (data.type === 'drew') live();
+    else if (data.type === 'snapshot') snapshotResolve?.(data);
+  };
+  worker.onerror = (e) => console.warn('flock: the worker failed — the still stays.', e.message);
+  post = m => worker.postMessage(m);
   post(initMessage());   // always first: everything else addresses the flock it makes
   pushStyle();
   flush();
-}
-
-function startWorker() {
-  if (params.has('mainthread') || !('transferControlToOffscreen' in canvas) || typeof Worker === 'undefined') return false;
-  try {
-    const worker = new Worker(new URL('./flock.js', import.meta.url), { type: 'module' });
-    const off = canvas.transferControlToOffscreen();
-    worker.postMessage({ type: 'canvas', canvas: off }, [off]);
-    worker.onmessage = ({ data }) => {
-      if (data.type === 'stats') stats = data;
-      else if (data.type === 'drew') live();
-      else if (data.type === 'snapshot') snapshotResolve?.(data);
-    };
-    worker.onerror = (e) => { // e.g. module workers unsupported: start over on a fresh canvas
-      console.warn('flock: worker failed, falling back to main thread —', e.message);
-      worker.terminate();
-      const fresh = canvas.cloneNode(); canvas.replaceWith(fresh); canvas = fresh;
-      startMainThread().catch(() => {});
-    };
-    post = m => worker.postMessage(m);
-    inWorker = true;
-    post(initMessage());   // always first: everything else addresses the flock it makes
-    pushStyle();
-    flush();
-    return true;
-  } catch { return false; }
 }
 // The still stands down only when there are actually birds on the canvas — not
 // when a worker has been constructed, which is what this used to wait for. The
@@ -276,7 +258,7 @@ function live() {
   still.addEventListener('transitionend', done, { once: true });
   setTimeout(done, 1200);                     // …and if the fade never runs at all
 }
-if (!startWorker()) startMainThread().catch(e => console.warn('flock: could not load the simulation —', e.message));
+startWorker();
 
 // Keep the canvas the size of the viewport.
 let resizeRaf = 0;
@@ -284,11 +266,7 @@ addEventListener('resize', () => {
   cancelAnimationFrame(resizeRaf);
   resizeRaf = requestAnimationFrame(() => {
     perchOff();   // the seat is in canvas coordinates; the canvas just moved
-    const { w, h } = measureWorld();
-    post({ type: 'resize', dpr: dpr(), w, h });
-    post({ type: 'home-size', size: homeSize() });
-    post({ type: 'scroll', y: scrollOffset() });
-    sendObstacles();
+    sendLayout();
   });
 }, { passive: true });
 // Come back to a flock that carried on without you. The loop stops while the tab
@@ -302,8 +280,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) { hiddenAt = performance.now(); post({ type: 'visible', value: false }); return; }
   const away = hiddenAt ? (performance.now() - hiddenAt) / 1000 : 0;
   hiddenAt = 0;
-  if (away > 1) post({ type: 'catchup', seconds: away });
-  post({ type: 'visible', value: true });
+  post({ type: 'visible', value: true, away });
   tick();   // the colour of the hour, now, not at the next minute
 });
 // The birds' sky is fixed and the page scrolls through it — one tiny message
@@ -317,10 +294,9 @@ addEventListener('scroll', () => {
   if (heroBound.matches) return;
   if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; post({ type: 'scroll', y: scrollOffset() }); });
 }, { passive: true });
-post({ type: 'scroll', y: scrollOffset() });
 // Crossing the breakpoint swaps which of the two the canvas is doing —
 // and which point grid the mark wears (sendHome, §3).
-heroBound.addEventListener('change', () => { post({ type: 'scroll', y: scrollOffset() }); sendHome(); });
+heroBound.addEventListener('change', () => { sendLayout(); sendHome(); });
 
 /* ---------------------------------------------------------------------------
  * 3. What you do
@@ -334,11 +310,10 @@ let overMaking = false;
 const finePointer = matchMedia('(pointer: fine)');
 const LURE_SCALE = 0.42;
 function lure(row) {
-  if (!row) { post({ type: 'lure', at: null }); post({ type: 'home-size', size: homeSize() }); return; }
+  if (!row) { post({ type: 'lure', at: null, size: homeSize() }); return; }
   const r = row.getBoundingClientRect(), c = canvas.getBoundingClientRect();
   const full = homeSize();
-  post({ type: 'home-size', size: { w: full.w * LURE_SCALE, h: full.h * LURE_SCALE } });
-  post({ type: 'lure', at: { x: r.left + r.width / 2 - c.left, y: r.top + r.height / 2 - c.top } });
+  post({ type: 'lure', at: { x: r.left + r.width / 2 - c.left, y: r.top + r.height / 2 - c.top }, size: { w: full.w * LURE_SCALE, h: full.h * LURE_SCALE } });
 }
 if (!STILL) $$('#making .row').forEach(row => {
   row.addEventListener('mouseenter', () => { if (finePointer.matches) { overMaking = true; lure(row); } });
@@ -368,14 +343,14 @@ document.addEventListener('mouseleave', () => { perchOff(); post({ type: 'pointe
  * movement throws away. Not on touch, not under reduced motion, not mid-sheet.
  * `?perch=` is the wait in seconds, for the impatient. */
 const PERCH_AFTER = (params.has('perch') ? +params.get('perch') : 45) * 1000;
-let perchTimer = 0, perched = false;
+let perchTimer = 0, perched = false, everPerched = false;   // everPerched: for the perf beacon
 function perchOff() {
   clearTimeout(perchTimer); perchTimer = 0;
   if (perched) { perched = false; post({ type: 'perch', at: null }); }
 }
 function perchNow() {
   const r = canvas.getBoundingClientRect();
-  perched = true;
+  perched = everPerched = true;
   post({ type: 'perch', at: { x: px - r.left, y: py - r.top } });
 }
 function perchLater() {
@@ -442,7 +417,7 @@ const MARK_THIN = (() => {
 })();
 function sendHome() { post({ type: 'home', points: heroBound.matches ? MARK_THIN : MARK, aspect: MARK_ASPECT, size: homeSize() }); }
 sendHome();
-sendObstacles();
+sendLayout();
 
 /* ---------------------------------------------------------------------------
  * 4. The archive
@@ -660,7 +635,7 @@ count();
     const d = dpr();
     report('perf', {
       fps: Math.round(stats.fps), n: stats.n,
-      renderer: stats.renderer || (STILL ? 'still' : 'none'), where: inWorker ? 'worker' : 'main',
+      renderer: stats.renderer || (STILL ? 'still' : 'none'), perched: +everPerched,
       dpr: +d.toFixed(2), mp: +(world.w * world.h * d * d / 1e6).toFixed(2),
       ...vitals(), t: Math.round(performance.now() / 1000),
     });
@@ -672,7 +647,7 @@ count();
 
 // Console: one line, and a handle to poke at.
 console.log(
-  `%cflock%c ${TARGET} · rules: separation, alignment, cohesion, you · ${inWorker ? 'worker + OffscreenCanvas' : 'main thread'}${STILL ? ' · still' : ''} (renderer: flock.where)\n%cwindow.flock — { count, fps, params, home, season(), perch(), hue, seed } · ?n= ?seed= ?still ?hue= ?hour= ?moon= ?perch= ?season=snow · press t, or j/k`,
+  `%cflock%c ${TARGET} · rules: separation, alignment, cohesion, you · worker + OffscreenCanvas${STILL ? ' · still' : ''} (renderer: flock.where)\n%cwindow.flock — { count, fps, params, home, season(), perch(), hue, seed } · ?n= ?seed= ?still ?hue= ?hour= ?moon= ?perch= ?season=snow · press t, or j/k`,
   'font-weight:600', '', 'color:gray');
 window.flock = {
   get count() { return stats.n; },
@@ -683,7 +658,8 @@ window.flock = {
   get params() { return stats.p && { ...stats.p }; },
   set params(p) { post({ type: 'params', params: p }); },
   get home() { return homeSize(); },
-  set home(on) { on ? sendHome() : post({ type: 'home-off' }); },
+  // true/false: the mark on or off; a size: the requested size (check.mjs steps the fit ladder with it).
+  set home(v) { v && typeof v === 'object' ? post({ type: 'lure', at: null, size: v }) : v ? sendHome() : post({ type: 'home', points: null }); },
   season: s => post({ type: 'season', season: s }),
   perch: () => { perchOff(); perchNow(); },   // without the 45 s of sitting still
   tempo: v => post({ type: 'tempo', value: v }),
@@ -692,6 +668,6 @@ window.flock = {
   set hue(v) { applyHue(+v); },   // through applyHue, so a step you could see still eases
   get light() { return { ...light, az: light.az * 180 / Math.PI }; },
   snapshot() { return new Promise(r => { snapshotResolve = r; post({ type: 'snapshot' }); }); },
-  get where() { return `${inWorker ? 'worker' : 'main'} · ${stats.renderer || 'starting'}`; },
-  get _runner() { return mainRunner; }, // main-thread only; handy in DevTools
+  step: n => post({ type: 'step', n }),   // ?still only: the gates step the sim by hand
+  get where() { return stats.renderer || 'starting'; },
 };

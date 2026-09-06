@@ -14,8 +14,8 @@ A boids simulation (Reynolds, 1986) drawn as small birds on a canvas that covers
 the birds, not the viewport** — see *What actually costs* below.
 It runs in a **Web Worker on an OffscreenCanvas** and renders through **WebGL instanced
 quads — one static unit quad, one ~8 KB dynamic buffer, one draw call per frame**, with
-edge anti-aliasing done in the fragment shader (no MSAA) and Canvas 2D as an automatic
-fallback. The main thread only sends small messages (pointer, where home is).
+edge anti-aliasing done in the fragment shader (no MSAA). No fallback: without usable
+GL the page keeps its still. The main thread only sends small messages (pointer, where home is).
 
 - **Rules, in order of weight:** separation, alignment, cohesion, and *you* — a moving
   pointer startles; content merely nudges (see below).
@@ -298,7 +298,7 @@ fallback. The main thread only sends small messages (pointer, where home is).
   sky with no birds from either path. Now a broken main.js degrades to the still.
 - **Hidden handles:** `window.flock` (count, fps, params, home, season(), perch(), tempo(),
   hue, light, seed, where, snapshot()), `?n=` `?seed=` `?still` `?hue=` `?hour=` `?moon=`
-  `?perch=` `?season=snow` `?mainthread`. One console line. `flock.params` reports the
+  `?perch=` `?season=snow`; `flock.step(n)` on `?still`, for the gates. One console line. `flock.params` reports the
   params the flock is **running**, not a copy of the defaults it started from — they ride
   the same once-a-second channel as the frame rate, which is also the only way the page can
   know them now that it does not import the simulation (see *Engineering constraints*).
@@ -388,8 +388,8 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
 5. **The renderer must refuse a software GL context.** `failIfMajorPerformanceCaveat`
    is set on the WebGL request: on machines where "WebGL" means SwiftShader (blocklisted
    GPUs, most VMs, headless), the GL path managed 23 draws/s against a 60 Hz rAF while
-   the Canvas 2D fallback keeps pace — on those machines 2D is not the degradation, it
-   is the fix. Real GPUs are unaffected. The context also declines the buffers it never
+   the Canvas 2D fallback kept pace. There is no 2D path any more (item 13): those
+   machines keep the still, the answer the page already had for reduced motion. Real GPUs are unaffected. The context also declines the buffers it never
    uses (`depth: false, stencil: false`) — it asked for `desynchronized` too, until item 10 — and the canvas
    bleed shrank 90 → 60 px — the bleed is off-screen paint the compositor pays for at
    full price, ~12 % of the layer at 1440×900.
@@ -461,10 +461,20 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    the system), and the hue eases only for a step between 1° and `HUE_STEP` — the return from
    a sleeping tab — with `hue-live` put on two frames before the value and taken off for
    everything else. A tick now paints twice: the light moved. Measured after: 2.
+13. **Two fallbacks that no longer bought anything.** Without a worker or an OffscreenCanvas
+   the page used to load the simulation itself and run it on the main thread; without usable
+   WebGL the Runner fell back to a Canvas 2D painter. Each rung carried its own state
+   (`inWorker`, `mainRunner`, `_runner`), its own switch (`?mainthread`), and a gate that
+   drove the bottom rung by hand — so the behaviours the gate pinned were pinned on a path no
+   visitor with a current browser ever took. OffscreenCanvas has been everywhere since Safari
+   16.4 (2023); the perf beacon counts what is left. And the page already had the right answer
+   for all of them: the still, composed, which stays until the worker's first draw and
+   outlives one that never comes. One path now — the worker with WebGL — or the still. The
+   gates drive the worker through `flock.step(n)` and `flock.snapshot()`, so they test what
+   visitors get. About a hundred lines gone, two concepts with them.
 
 Instruments in `tools/`: `fps.mjs` (achieved flock frame rate — the number that matters;
-main-thread rAF deltas are vsync-pinned and cannot see any of this), `bench.html`
-(per-operation microbench with GPU sync), `perf.mjs` (journey long-task benchmark),
+main-thread rAF deltas are vsync-pinned and cannot see any of this), `perf.mjs` (journey long-task benchmark),
 `flight.mjs` (turn rate, one size, the beat actually advancing, one step per frame — plus
 `out/wingbeat.png`, a filmstrip, because a wingbeat is motion and no screenshot shows one).
 
@@ -646,7 +656,7 @@ fifth 9 against 12, and the shift correlates with predicted shade at r = 0.62 ac
 birds. At noon the same numbers are 2.9 and 1.5 — the effect is ~5.7× weaker, which is
 elevation doing its job.
 
-`Canvas2DPainter` runs the same `shade()` on the CPU, folded into the six opacity buckets it
+The 2D painter — gone since item 13 — ran the same `shade()` on the CPU, folded into the six opacity buckets it
 already sorts birds into: a wing catching the light lands its bird a bucket brighter. It is
 per bird rather than per segment there — both wings are one sub-path — and quantised to six
 steps, so it is coarse. It is the fallback; it only has to be *right*, not equal.
@@ -1104,9 +1114,9 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   closer to true than a hosted tracker's would be. An opened archive sheet counts as its own
   view, which is the one genuinely interesting thing this page can measure. `js/count.js`.
   **And one more beacon, once, with how the page ran** (`perf`, at ten seconds or when the
-  page goes away, whichever first): the flock's achieved frame rate and renderer, whether it ran
-  in the worker, the pixel ratio it chose and the canvas area in megapixels, LCP, the slowest
-  interaction, and how long the page had been open. Numbers only, same rules as the count.
+  page goes away, whichever first): the flock's achieved frame rate and renderer,
+  the pixel ratio it chose and the canvas area in megapixels, LCP, the slowest interaction,
+  whether a bird ever perched, and how long the page had been open. Numbers only, same rules as the count.
   Every knob on this page — the pixel budget, the 1.5 floor, the bird counts — was tuned on
   emulation and one desk, and every real problem it has had (the sluggish rounds, the Android
   canvas that hid the page) was invisible to the lab. This is the instrument the lab is not.
@@ -1116,7 +1126,7 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
 - No build step for the site. No framework, and no third-party requests
   (the network tab is this repo). `view-source` is commented and unminified.
 - **`flock.js` exports only what is imported.** It offered eleven symbols and five had no
-  consumer anywhere: `DEFAULTS`, `rng`, `wingPose`, `GLPainter`, `Canvas2DPainter`. `DEFAULTS`
+  consumer anywhere: `DEFAULTS`, `rng`, `wingPose`, `GLPainter`. `DEFAULTS`
   became vestigial the moment the page stopped importing the simulation (below) and nothing
   noticed. They are internal now. Almost no bytes — the point is that a public export is a
   promise, and five of them were promises to nobody.
@@ -1144,7 +1154,8 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   - `flock-on` (which stands the no-JS still down) is still set only once the flock is
     genuinely live — immediately on the worker path, and after the import resolves on the
     other. A simulation that fails to load must not hide the still that replaces it.
-- Everything is behind feature detection: no Worker/OffscreenCanvas → main thread;
+- Everything is behind feature detection: no Worker, no OffscreenCanvas, no usable WebGL →
+  the still (item 13; there used to be a main-thread runner and a Canvas 2D painter);
   no View Transitions → plain; no `<dialog>` → `:target`; no script → still.
 - **All four gates run in CI**, in three jobs. The WebKit/Firefox job **retries once, and never over a
   finding**. It is flaky on the runner in more than one way and none of them has been the
@@ -1167,7 +1178,7 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   desktop and mobile; first load < 100 KB gzip (currently 86.7 KB); no console errors;
   reduced motion is actually still; no-JS still and `:target` work; the behaviours that
   shipped as screenshots, pinned (landscape stand-down, the thinned phone grid, the theme
-  switch under blocked storage — all on `?still&mainthread`, stepping the sim by hand so
+  switch under blocked storage — all on `?still`, stepping the worker's sim by hand through `flock.step(n)` and reading it back through `snapshot()`, so
   each is deterministic and takes milliseconds; plus the perch, which is run live rather
   than stepped, because it is a flight; plus the hero across eight viewports, which is
   layout and needs no flock at all); and offline: kill the network, reload,
@@ -1244,6 +1255,12 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
     controlled from the start and a screenshot you look at really is cached here; the
     difference matters because GitHub Pages sends a far shorter `max-age` than the dev
     server's year.
+- **The protocol is sixteen verbs, not twenty-two.** The page-to-worker messages that only ever
+  travelled together travel as one: `style` carries the hour's daylight; `layout` carries the
+  canvas's size and ratio, the scroll offset, the content walls and the mark's ideal size (four
+  verbs before, each settling the still by its own count); `lure` carries the size the mark
+  condenses to; `home` with no points clears it; `visible` carries the time away and runs the
+  catch-up itself. The per-frame `scroll` and `pointer` stay their own, being the hot path.
 - **One copy of the plumbing** (`js/theme.js`): which theme is in force, how a mode is
   applied and remembered, how the hour's light lands on the page and the flock. main.js
   and 404.js each carried a private copy and the copies drifted — a missing modifier
@@ -1252,7 +1269,7 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   too, for the same reason: the 404 had neither, because it had its own copy of nothing.
 - **More instruments, not part of the gate**: `tools/fps.mjs` — the flock's achieved frame
   rate across worker/main-thread and canvas configurations (the metric that matters — see
-  *What actually costs*); `tools/bench.html` — per-operation microbench with GPU sync;
+  *What actually costs*);
   `tools/perf.mjs` — a journey benchmark for long tasks; `tools/crowd.mjs` — samples bird
   state, position and velocity mid-simulation (`window.flock.snapshot()`) and flags any
   bird that is simultaneously slow, content-adjacent and clustered — the actual signature

@@ -1,5 +1,5 @@
 // Measures the frame rate the flock actually achieves — the number the user
-// sees — across worker/main-thread and canvas configurations.
+// sees — across canvas configurations.
 //
 // It runs HEADED, and that is the whole point of the tool. Headless Chromium
 // has no GPU compositing: a viewport-sized transparent canvas is re-uploaded
@@ -13,7 +13,6 @@ import { chromium } from 'playwright';
 const headless = process.argv.includes('--headless');
 const configs = [
   ['worker · small canvas @1.5x', '?seed=7'],
-  ['main   · small canvas @1.5x', '?seed=7&mainthread'],
   ['worker · small canvas @2x',   '?seed=7&fdpr=2'],
   ['worker · 600 birds',          '?seed=7&n=600'],
 ];
@@ -29,8 +28,8 @@ for (const [name, q] of configs) {
   const a = await page.evaluate(() => ({ r: window.__r, t: performance.now() }));
   await page.waitForTimeout(3000);
   const b = await page.evaluate(() => ({ r: window.__r, t: performance.now(), fps: window.flock?.fps, n: window.flock?.count, where: window.flock?.where }));
-  // The renderer is printed because a fallback to canvas2d or software GL is
-  // the usual explanation for a number that looks wrong, and it is invisible otherwise.
+  // The renderer is printed because software GL is the usual explanation for a
+  // number that looks wrong, and it is invisible otherwise.
   console.log(`${name.padEnd(28)} ${String(b.fps ?? '-').padStart(7)} ${(((b.r - a.r) / (b.t - a.t)) * 1000).toFixed(1).padStart(11)} ${String(b.n ?? '-').padStart(6)}  ${b.where ?? '-'}`);
   await ctx.close();
 }

@@ -18,7 +18,6 @@ Dev-only. Nothing in here ships. `npm install` once, then:
 | `node flight.mjs`      | do they fly like birds? turn rate, one size, the beat, frame pacing; filmstrip |
 | `node fps.mjs`         | the frame rate the flock actually achieves, worker vs main, per config |
 | `node perf.mjs`        | journey benchmark: main-thread frame times and long tasks             |
-| `node probe.mjs`       | isolates what costs — canvas area, DPR — one variable at a time       |
 | `node tune.mjs '{…}'`  | headless flock tuning: simulate N seconds → PNGs in the scratchpad   |
 
 Anything that takes a picture of the site pins the clocks that would otherwise move under

@@ -87,35 +87,38 @@ for (const path of ['/', '/404.html']) {
 }
 
 // --- behaviours that shipped as screenshots — pinned here so tuning can't
-// silently undo them. All on ?still&mainthread: the sim is stepped by hand,
-// so each check is deterministic and takes milliseconds, not settle-time.
+// silently undo them. All on ?still, on the worker — the path visitors take:
+// `flock.step(n)` advances the simulation by hand and `flock.snapshot()` reads
+// it back, so each check is deterministic and takes milliseconds, not settle-time.
 console.log('\nbehaviours');
 {
+  const step = (page, n) => page.evaluate(n => window.flock.step(n), n);
+  const snap = (page) => page.evaluate(() => window.flock.snapshot());
   const still = async (page, url, steps = 300) => {
-    await page.goto(BASE + url); await page.waitForFunction(() => window.flock?._runner);
-    await page.evaluate((n) => { const r = window.flock._runner; for (let i = 0; i < n; i++) r.flock.advance(1 / 60); }, steps);
+    await page.goto(BASE + url); await page.waitForFunction(() => window.flock?.snapshot);
+    await step(page, steps);
     return page;
   };
   // A landscape phone is all words: the mark stands down (homeOut), and comes
   // back when the viewport turns portrait again.
   const ctx = await browser.newContext({ viewport: { width: 667, height: 375 }, serviceWorkers: 'block' });
   const page = await ctx.newPage();
-  await still(page, '/?seed=7&still&mainthread');
-  const out = await page.evaluate(() => ({ box: window.flock._runner.flock.homeBox, out: window.flock._runner.flock.homeOut }));
-  (out.out && out.box === null) ? ok('landscape: mark stands down (homeOut, no box)') : fail(`landscape: mark did not stand down (${JSON.stringify(out)})`);
+  await still(page, '/?seed=7&still');
+  const out = await snap(page);
+  (out.homeOut && out.homeBox === null) ? ok('landscape: mark stands down (homeOut, no box)') : fail(`landscape: mark did not stand down (${JSON.stringify({ box: out.homeBox, out: out.homeOut })})`);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(250); // let resize re-measure, then step the sim
-  await page.evaluate(() => { const r = window.flock._runner; for (let i = 0; i < 300; i++) r.flock.advance(1 / 60); });
-  const back = await page.evaluate(() => window.flock._runner.flock.homeBox);
+  await step(page, 300);
+  const back = (await snap(page)).homeBox;
   back ? ok('portrait: the mark returns') : fail('portrait: the mark never came back');
   // Phones fly the thinned grid (102 points), desktop the full 208.
-  const pts = await page.evaluate(() => window.flock._runner.flock.home.points.length / 2);
+  const pts = (await snap(page)).homePoints;
   pts === 102 ? ok(`phone mark: thinned grid (${pts} points)`) : fail(`phone mark: expected 102 points, got ${pts}`);
   await ctx.close();
   const dctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
   const dpage = await dctx.newPage();
-  await still(dpage, '/?seed=7&still&mainthread', 60);
-  const dpts = await dpage.evaluate(() => window.flock._runner.flock.home.points.length / 2);
+  await still(dpage, '/?seed=7&still', 60);
+  const dpts = (await snap(dpage)).homePoints;
   dpts === 208 ? ok(`desktop mark: full grid (${dpts} points)`) : fail(`desktop mark: expected 208 points, got ${dpts}`);
   await dctx.close();
   // The hero is bottom-anchored and must equal the viewport you can SEE. No
@@ -154,14 +157,11 @@ console.log('\nbehaviours');
   {
     const bctx = await browser.newContext({ viewport: { width: 1000, height: 700 }, serviceWorkers: 'block' });
     const bpage = await bctx.newPage();
-    await bpage.goto(BASE + '/?seed=7&still&mainthread');
-    await bpage.waitForFunction(() => window.flock?._runner?.flock?.homeBox);
-    const r = await bpage.evaluate(() => {
-      const f = window.flock._runner.flock;
-      f.setHomeSize({ w: 900, h: 900 / 1.557 });          // too big for the room: the ladder must step
-      for (let i = 0; i < 400; i++) f._step(1 / 60);
-      return { fit: f.homeFit, want: Math.round(f.home.size.w * f.homeFit), box: Math.round(f.homeBox.w) };
-    });
+    await still(bpage, '/?seed=7&still', 60);
+    await bpage.evaluate(() => { window.flock.home = { w: 900, h: 900 / 1.557 }; });   // too big for the room: the ladder must step
+    await step(bpage, 400);
+    const s = await snap(bpage);
+    const r = { fit: s.homeFit, want: Math.round(s.homeReq.w * s.homeFit), box: Math.round(s.homeBox.w) };
     (r.fit < 1 && r.box === r.want)
       ? ok(`home box tracks the fit (stepped to ${r.fit}, box ${r.box}px)`)
       : fail(`home box is ${r.box}px but the mark is ${r.want}px at fit ${r.fit} — the ring circles the wrong size`);
@@ -229,15 +229,15 @@ console.log('\nbehaviours');
   {
     const pctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
     const ppage = await pctx.newPage();
-    await ppage.goto(BASE + '/?seed=7&perch=1&mainthread');
-    await ppage.waitForFunction(() => window.flock?._runner?.flock);
+    await ppage.goto(BASE + '/?seed=7&perch=1');
+    await ppage.waitForFunction(() => window.flock && window.flock.count > 0);
     const PX = 980, PY = 300;
     await ppage.mouse.move(PX - 40, PY - 40);
     await ppage.mouse.move(PX, PY);
-    const seat = async () => ppage.evaluate(([x, y]) => {
-      const f = window.flock._runner.flock, c = document.getElementById('flock').getBoundingClientRect();
-      let i = -1; for (let k = 0; k < f.n; k++) if (f.st[k] === 3) i = k;
-      return { n: [...f.st].filter(v => v === 3).length, i,
+    const seat = async () => ppage.evaluate(async ([x, y]) => {
+      const f = await window.flock.snapshot(), c = document.getElementById('flock').getBoundingClientRect();
+      let i = -1; for (let k = 0; k < f.st.length; k++) if (f.st[k] === 3) i = k;
+      return { n: f.st.filter(v => v === 3).length, i,
                d: i < 0 ? null : Math.hypot(f.x[i] - (x - c.left), f.y[i] - (y - c.top)),
                v: i < 0 ? null : Math.hypot(f.vx[i], f.vy[i]) };
     }, [PX, PY]);
