@@ -1029,11 +1029,16 @@ class GLPainter {
       // stencil: flat strokes want a bare colour buffer, and every buffer not
       // allocated is bandwidth the compositor never spends. desynchronized
       // lets the browser skip a compositor copy where it can.
-      // failIfMajorPerformanceCaveat is the important one: it refuses a
-      // SOFTWARE GL context (SwiftShader — blocklisted GPUs, many VMs). On
-      // those machines "WebGL" is the slow path — measured headless: 23
-      // draws/s against a 60 Hz rAF — and a refusal means the page keeps its
-      // composed still, which is the better frame (Runner).
+      // failIfMajorPerformanceCaveat first: it refuses a SOFTWARE GL context
+      // (SwiftShader, llvmpipe — blocklisted GPUs, many VMs, every CI runner).
+      // Refused, the same context is asked for again WITHOUT the caveat and
+      // taken, slowly — measured headless: 23 draws/s against a 60 Hz rAF —
+      // and the renderer says so ('webgl2 (software)'), which the perf beacon
+      // carries home. The 2D painter that used to take these machines is gone
+      // (DESIGN.md, "What actually costs", 13); its first day in CI showed
+      // that WebKit and Firefox on a Linux runner ARE such machines, and a
+      // gate that cannot start the flock there proves nothing about either
+      // engine. So software GL runs. The beacon decides whether it should.
       // No `desynchronized`. It was asked for once, for a frame less of latency
       // the flock never needed — this is an ambient animation, not a pen — and
       // on Android Chrome the low-latency path puts a translucent canvas on a
@@ -1043,11 +1048,14 @@ class GLPainter {
       const opts = { alpha: true, antialias: false, depth: false, stencil: false,
         failIfMajorPerformanceCaveat: true,
         powerPreference: 'low-power', premultipliedAlpha: true };
-      const gl = canvas.getContext('webgl2', opts) || canvas.getContext('webgl', opts);
+      let soft = false;
+      let gl = canvas.getContext('webgl2', opts) || canvas.getContext('webgl', opts);
+      if (!gl) { soft = true; const o = { ...opts, failIfMajorPerformanceCaveat: false }; gl = canvas.getContext('webgl2', o) || canvas.getContext('webgl', o); }
       if (!gl) return null;
       const ext = gl.vertexAttribDivisor ? null : gl.getExtension('ANGLE_instanced_arrays');
       if (!gl.vertexAttribDivisor && !ext) return null;
       const p = new GLPainter(canvas, gl, ext);
+      if (soft) p.name += ' (software)';
       return p.ok ? p : null;
     } catch { return null; }
   }

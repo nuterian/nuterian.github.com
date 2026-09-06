@@ -472,6 +472,13 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    outlives one that never comes. One path now — the worker with WebGL — or the still. The
    gates drive the worker through `flock.step(n)` and `flock.snapshot()`, so they test what
    visitors get. About a hundred lines gone, two concepts with them.
+   **Its first day in CI corrected one thing.** WebKit and Firefox on a Linux runner have only
+   software GL, which the painter refused on purpose — and with the 2D painter gone, the flock
+   never started there: the engines gate reported ✗ twice, and it was right, because a gate
+   that cannot start the flock proves nothing about either engine. So software GL is now asked
+   for a second time without the caveat and taken, slowly (item 5's 23 draws/s), with the
+   renderer named `webgl2 (software)` so the perf beacon can say how many real visitors that
+   is and how they fare. If the answer is many and badly, the still is one line away.
 
 Instruments in `tools/`: `fps.mjs` (achieved flock frame rate — the number that matters;
 main-thread rAF deltas are vsync-pinned and cannot see any of this), `perf.mjs` (journey long-task benchmark),
