@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # the pages gate reads the date git last touched each page
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -35,6 +37,21 @@ jobs:
         with:
           name: screenshots
           path: tools/out
+
+  # Tell Bing — and so Copilot and ChatGPT search — the moment master changes.
+  # Google takes no IndexNow; it reads the sitemap's lastmod, which the gate keeps
+  # true. The key is public by design (its file at the site root proves ownership).
+  indexnow:
+    needs: check
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Pages, then ping
+        run: |
+          sleep 90
+          curl -s -o /dev/null -w "indexnow %{http_code}\n" -X POST https://api.indexnow.org/indexnow \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            -d '{"host":"jugalm.com","key":"ffaecefb5f301ae38ebb2ec47ae39f00","keyLocation":"https://jugalm.com/ffaecefb5f301ae38ebb2ec47ae39f00.txt","urlList":["https://jugalm.com/","https://jugalm.com/2013/"]}'
 
   # Does it still fly like a bird, and does it still not pile up in corners?
   # Neither is visible in a screenshot, which is exactly why they are gated.

@@ -8,6 +8,8 @@
  *   • Motion: prefers-reduced-motion renders a still (no animation frames)
  *   • Deploy: one visit after a deploy, the page runs on the new assets — the
  *     service worker's two caching rules alone left it one visit behind
+ *   • Pages: every sitemap URL has a title, a description, its canonical and a
+ *     JSON-LD node; the dates the sitemap claims for this repo's pages are git's
  *   • Mirrors: the facts the code keeps in two places — the phone breakpoint,
  *     the flock's colour, the service worker's shell, the font weight range —
  *     recomputed from the served files and held together here
@@ -21,6 +23,7 @@ import * as LH from 'lighthouse/core/config/constants.js';
 import { gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { flockColor } from '../js/hue.js';
 
 const BASE = process.argv[2] || 'http://localhost:4174';
@@ -431,6 +434,39 @@ console.log('\nmirrors');
     if (faces.length < 2 || badFace.length) fail(`weights: @font-face ranges ${JSON.stringify(faces)} vs fonts.mjs ${min}–${max}`);
     else if (badUse.length) fail(`weights: style.css asks for ${badUse.join(', ')}, outside the subset's ${min}–${max}`);
     else ok(`weights: ${min}–${max} in fonts.mjs, both @font-face blocks, and every use (${[...new Set(used)].join(', ')})`);
+  }
+}
+
+// --- pages: what the sitemap promises, each page keeps ------------------------
+// A search engine or a language model reads the sitemap, then each page's title,
+// description, canonical and structured data. Two of the four pages are other
+// repos' deploys, reached live; this repo's two are read from the served files,
+// and the date the sitemap claims for each is held to the date git last touched it
+// — so a change to index.html that forgets the sitemap fails here, not in a crawl.
+console.log('\npages');
+{
+  const LIVE = 'https://jugalm.com';
+  const sitemap = await (await fetch(BASE + '/sitemap.xml')).text();
+  const owned = { '/': 'index.html', '/2013/': '2013/' };
+  const root = new URL('../', import.meta.url).pathname;
+  for (const m of sitemap.matchAll(/<url><loc>([^<]+)<\/loc>(?:<lastmod>([^<]+)<\/lastmod>)?/g)) {
+    const loc = m[1], lastmod = m[2], path = new URL(loc).pathname, local = path in owned;
+    const res = await fetch((local ? BASE : LIVE) + path);
+    if (!res.ok) { fail(`pages: ${loc} answers ${res.status}`); continue; }
+    const html = await res.text();
+    const missing = [];
+    if (!/<title>[^<]+<\/title>/.test(html)) missing.push('title');
+    if (!/<meta\s+name="description"\s+content="[^"]+"/.test(html.replace(/\s+/g, ' '))) missing.push('description');
+    if (!html.replace(/\s+/g, ' ').includes(`<link rel="canonical" href="${loc}"`)) missing.push('canonical = ' + loc);
+    if (!/application\/ld\+json/.test(html)) missing.push('JSON-LD');
+    if (!lastmod) missing.push('lastmod in the sitemap');
+    if (local && lastmod) {
+      // An uncommitted change counts as today's: the commit this gate guards is the one that will carry it.
+      const dirty = execSync(`git status --porcelain -- ${owned[path]}`, { cwd: root }).toString().trim();
+      const touched = dirty ? new Date().toISOString().slice(0, 10) : execSync(`git log -1 --format=%cs -- ${owned[path]}`, { cwd: root }).toString().trim();
+      if (touched && touched !== lastmod) missing.push(`lastmod ${lastmod} but git last touched it ${touched}`);
+    }
+    missing.length ? fail(`pages: ${loc} lacks ${missing.join(', ')}`) : ok(`pages: ${loc} — title, description, canonical, JSON-LD, lastmod ${lastmod}${local ? ' = git' : ''}`);
   }
 }
 

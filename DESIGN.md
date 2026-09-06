@@ -1174,7 +1174,7 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   remembered. They protect the least screenshot-visible behaviour on the site, and most of
   this file is a catalogue of exactly those things regressing. WebKit and Firefox get their
   own job because they take far longer to download than to run, and nothing should wait on it.
-- **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; the CSP names every inline script by hash and no origin but ours; the mirrors hold (the phone breakpoint is one constant in main.js and the same query in style.css, hue.js computes what `--flock` resolves to, the service worker's shell is exactly what the two pages load plus the favicon, the font weight range agrees between fonts.mjs, both `@font-face` blocks and every use — its first run found the sheet going full-bleed at 700 px while everything else turned at 699, there since the first commit); a deploy lands whole (the service worker gate above); Lighthouse 100/100/100/100 on
+- **Gates** (`tools/check.mjs`, run in CI): axe 0 violations; the CSP names every inline script by hash and no origin but ours; the mirrors hold (the phone breakpoint is one constant in main.js and the same query in style.css, hue.js computes what `--flock` resolves to, the service worker's shell is exactly what the two pages load plus the favicon, the font weight range agrees between fonts.mjs, both `@font-face` blocks and every use — its first run found the sheet going full-bleed at 700 px while everything else turned at 699, there since the first commit); a deploy lands whole (the service worker gate above); every sitemap page has a title, description, canonical and JSON-LD, with this repo's `lastmod` dates held to git; Lighthouse 100/100/100/100 on
   desktop and mobile; first load < 100 KB gzip (currently 86.7 KB); no console errors;
   reduced motion is actually still; no-JS still and `:target` work; the behaviours that
   shipped as screenshots, pinned (landscape stand-down, the thinned phone grid, the theme
@@ -1275,6 +1275,38 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   bird that is simultaneously slow, content-adjacent and clustered — the actual signature
   of a jam, as opposed to normal flocking density or a single-frame speed dip while
   turning.
+
+## Search
+
+What a search engine — and, increasingly, a language model assembling an answer — gets from
+this site, settled 2026-09-06. The technical floor was already there: every word in the HTML
+with no script, a canonical, a description, Open Graph, alt on every image, a sitemap whose
+URLs all answer, robots that allow everything (that includes GPTBot, ClaudeBot, PerplexityBot
+and Google-Extended, on purpose: a calling card wants to be read). What was thin was the part
+those readers actually consume.
+
+- **The title says what, not just who.** `Jugal Manjeshwar — software engineer at YouTube`:
+  a result and a citation show the title, and a name alone is an entity label with no claim.
+  The sheets still title themselves `Classroom.tv — Jugal Manjeshwar` (main.js reads the h1).
+- **One graph, not one node.** The JSON-LD is a `WebSite`, the `Person` (description,
+  `knowsAbout`, `worksFor`, `sameAs`), the two Making projects as `SoftwareApplication`
+  and the archive as an `ItemList` of `CreativeWork`, each with a sentence of what it was.
+  `/forge/` and `/song/` carry their own `SoftwareApplication` nodes with the same
+  `author` id, and `/2013/` a `WebPage`, so the four pages resolve to one person.
+- **The sitemap's dates are true.** `lastmod` on every URL, and check.mjs holds this repo's
+  two to the date git last touched them — the same discipline as the CSP hash.
+- **IndexNow.** A green `master` pings Bing with the changed URLs (CI, after the gates); Bing
+  feeds Copilot and ChatGPT search. Google reads the sitemap instead. The key file at the root
+  is public by design.
+- **Every sitemap page keeps the promise** — title, description, canonical, a JSON-LD node —
+  and the gate reads the two other repos' pages live, so a regression there fails here.
+- **Not done, and the one that matters most:** the page says 241 words. An answer about who
+  Jugal is or what The Forge is comes from prose claims, and the sheets and Making rows carry
+  captions, not sentences. A paragraph per Making project and a sentence per archive sheet,
+  visible, would move more than everything above. The words should be Jugal's; a draft exists.
+- **Considered, not done:** per-project URLs (a page each would rank and cite on its own, but
+  seven pages against a one-page design, and depth moves more); `llms.txt` (cheap, unproven —
+  Google has said its crawlers do not read it).
 
 ## One library under the gates
 

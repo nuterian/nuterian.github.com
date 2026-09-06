@@ -56,6 +56,7 @@ const homes = new Map(); // slug → where its .sheet lives when closed
 // bookmarks and seven lines in the back button's dropdown, all reading the
 // same name, and seven identical rows in the analytics.
 const PAGE_TITLE = document.title;
+const NAME = $('h1').textContent;   // the sheet titles use the name, not the whole <title>
 let opener = null, current = null; // the row that opened the sheet; the open slug
 // Which hand made the last input. WebKit — Safari, desk and phone — draws
 // :focus-visible on a script's focus() whatever caused it, so a sheet closed with
@@ -432,7 +433,7 @@ function openSheet(slug, { push = true } = {}) {
     sheet.append(node);
     sheetTitle.textContent = $(`.row[data-slug="${slug}"] .name`).textContent;
     sheet.setAttribute('aria-label', sheetTitle.textContent);
-    document.title = `${sheetTitle.textContent} — ${PAGE_TITLE}`;
+    document.title = `${sheetTitle.textContent} — ${NAME}`;
     if (!sheet.open) {
       sheet.showModal();
       // showModal() focuses the first focusable thing it finds, which is the ←
