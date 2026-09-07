@@ -463,7 +463,7 @@ console.log('\npages');
     if (local && lastmod) {
       // An uncommitted change counts as today's: the commit this gate guards is the one that will carry it.
       const dirty = execSync(`git status --porcelain -- ${owned[path]}`, { cwd: root }).toString().trim();
-      const touched = dirty ? new Date().toISOString().slice(0, 10) : execSync(`git log -1 --format=%cs -- ${owned[path]}`, { cwd: root }).toString().trim();
+      const touched = dirty ? new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) /* local, as git dates are */ : execSync(`git log -1 --format=%cs -- ${owned[path]}`, { cwd: root }).toString().trim();
       if (touched && touched !== lastmod) missing.push(`lastmod ${lastmod} but git last touched it ${touched}`);
     }
     missing.length ? fail(`pages: ${loc} lacks ${missing.join(', ')}`) : ok(`pages: ${loc} — title, description, canonical, JSON-LD, lastmod ${lastmod}${local ? ' = git' : ''}`);

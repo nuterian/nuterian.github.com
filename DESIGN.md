@@ -1296,9 +1296,9 @@ those readers actually consume.
   a result and a citation show the title, and a name alone is an entity label with no claim.
   The sheets still title themselves `Classroom.tv — Jugal Manjeshwar` (main.js reads the h1).
 - **One graph, not one node.** The JSON-LD is a `WebSite`, the `Person` (description,
-  `knowsAbout`, `worksFor`, `sameAs`), the two Making projects as `SoftwareApplication`
+  `knowsAbout`, `worksFor`, `sameAs`), the Making projects as `SoftwareApplication` (and Flight as a `VideoGame`)
   and the archive as an `ItemList` of `CreativeWork`, each with a sentence of what it was.
-  `/forge/` and `/song/` carry their own `SoftwareApplication` nodes with the same
+  `/forge/`, `/song/` and `/flight/` carry their own nodes with the same
   `author` id, and `/2013/` a `WebPage`, so the four pages resolve to one person.
 - **The sitemap's dates are true.** `lastmod` on every URL, and check.mjs holds this repo's
   two to the date git last touched them — the same discipline as the CSP hash.
