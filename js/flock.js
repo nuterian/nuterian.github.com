@@ -1305,7 +1305,16 @@ export class Runner {
   settle(steps = 600) { for (let i = 0; i < steps; i++) this.flock._step(STEP); this.draw(); }
 
   start() { if (this.running || this.still) return; this.running = true; this.last = 0; this.raf(this.tick); }
-  stop() { this.running = false; }
+  stop() {
+    if (!this.running) return;
+    this.running = false;
+    // The second so far, however much of it there was. The page's perf beacon
+    // reads the most recent rate, and a flock stopped mid-second — a phone
+    // scrolling the hero away — would otherwise leave it the second before, or
+    // the 0 from init if it never reached a full one.
+    if (this.accum > 0.25) this._report(this.frames / this.accum);
+    this.frames = 0; this.accum = 0;
+  }
 
   tick = (now) => {
     if (!this.running) return;

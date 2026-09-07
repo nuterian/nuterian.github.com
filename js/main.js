@@ -3,7 +3,7 @@
  *
  * Responsibilities, top to bottom:
  *   1. Hue of the day and theme.
- *   2. Start the flock (Worker + OffscreenCanvas, else main thread, else still).
+ *   2. Start the flock (Worker + OffscreenCanvas, else the still).
  *   3. Feed it what you do: pointer, hover, scroll, tilt, taps, idleness.
  *   4. The archive: rows → <dialog>, deep links, keyboard, swipe.
  *   5. Small things: footer arrow, console, window.flock.
@@ -20,10 +20,30 @@
 // to be a ten-line flock.worker.js in between; each hop on that path is a
 // round trip the birds wait for — measured, −165 ms to first birds at 4 Mbps).
 // The page needs only the mark, which lives in mark.js.
-import { MARK, MARK_ASPECT, markSize } from './mark.js';
-import { hueAt } from './hue.js';
-import { setTheme as applyTheme, nextTheme, lightStyle, keepViewportHeight } from './theme.js';
-import { count, report, watchVitals } from './count.js';
+//
+// And note WHEN the worker is made: now, before this file's own imports have
+// arrived. A module's body runs only once everything it imports has been fetched
+// and evaluated, so a spawn sitting in the body waited on mark, hue, theme and
+// count — four small files, one round trip — though it needs none of them: a
+// <canvas> and a Worker constructor. Measured on the live site (400 kbps, 100 ms
+// RTT, 4× CPU): main.js 992→1386 ms, its imports 1386→1716, flock.js 1733→2376,
+// birds at 2411. The middle hop was pure waiting. So the worker is spawned first,
+// from a module that has imported nothing yet, and flock.js comes down alongside
+// the four; they are imported below, dynamically, and `init` follows once they
+// are in. The worker has nothing to say until then, and the queue (`post`) never
+// cared about the order (DESIGN.md, "What actually costs", 14).
+let worker = null;
+{
+  const canvas = document.getElementById('flock');
+  if (canvas && 'transferControlToOffscreen' in canvas && typeof Worker !== 'undefined') {
+    worker = new Worker(new URL('./flock.js', import.meta.url), { type: 'module' });
+    const off = canvas.transferControlToOffscreen();
+    worker.postMessage({ type: 'canvas', canvas: off }, [off]);
+    worker.onerror = (e) => console.warn('flock: the worker failed — the still stays.', e.message);
+  }
+}
+const [{ MARK, MARK_ASPECT, markSize }, { hueAt }, { setTheme: applyTheme, nextTheme, lightStyle, keepViewportHeight }, { count, report, watchVitals }] =
+  await Promise.all([import('./mark.js'), import('./hue.js'), import('./theme.js'), import('./count.js')]);
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -222,17 +242,16 @@ let snapshotResolve = null; // window.flock.snapshot() — the gates read the fl
 // counts the rest, and the page already has the right answer for all of them:
 // the still stays until the worker's first draw, and outlives one that never
 // comes (live(), below). DESIGN.md, "What actually costs", 13.
+// The worker itself was made at the top of this file, before the imports, so
+// that flock.js was already on its way while they were; this is where it is
+// listened to and told what to run.
 function startWorker() {
-  if (!('transferControlToOffscreen' in canvas) || typeof Worker === 'undefined') { post = () => {}; return; }
-  const worker = new Worker(new URL('./flock.js', import.meta.url), { type: 'module' });
-  const off = canvas.transferControlToOffscreen();
-  worker.postMessage({ type: 'canvas', canvas: off }, [off]);
+  if (!worker) { post = () => {}; return; }
   worker.onmessage = ({ data }) => {
     if (data.type === 'stats') stats = data;
     else if (data.type === 'drew') live();
     else if (data.type === 'snapshot') snapshotResolve?.(data);
   };
-  worker.onerror = (e) => console.warn('flock: the worker failed — the still stays.', e.message);
   post = m => worker.postMessage(m);
   post(initMessage());   // always first: everything else addresses the flock it makes
   pushStyle();
@@ -248,9 +267,12 @@ function startWorker() {
 // fading rather than cutting, so the mark dissolves into the flock that is
 // scattering in behind it. A flock that never draws never fires this, which is
 // exactly right: the fallback outlives anything broken above it.
+let liveResolve;
+const flockLive = new Promise(r => { liveResolve = r; });   // settled by live(); the service worker waits on it
 function live() {
   if (root.classList.contains('flock-on')) return;
   root.classList.add('flock-on');
+  liveResolve();
   const still = $('.still');
   if (!still) return;
   // Hidden once faded, never removed: the same node is the letterhead the print
@@ -276,14 +298,32 @@ addEventListener('resize', () => {
 // over, and the simulation lives through it in one go before the first frame is
 // drawn. It reads as "it was still going", which is the point; nobody would call
 // it a feature.
-let hiddenAt = 0;
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { hiddenAt = performance.now(); post({ type: 'visible', value: false }); return; }
-  const away = hiddenAt ? (performance.now() - hiddenAt) / 1000 : 0;
-  hiddenAt = 0;
+//
+// The sky has two exits, not one. The tab hiding is the first. The second is a
+// phone's: there the canvas is anchored to the hero (style.css) and scrolls away
+// with it, and a flock nobody could see went on flying at 60 Hz — simulating,
+// drawing a full frame, committing it to a layer off the screen — for as long as
+// the archive was read, which on a phone is most of the visit. An
+// IntersectionObserver on the canvas says which side of the fold it is on; on a
+// desk the canvas is fixed and it never has anything to say. Both exits lead to
+// the same door — `visible`, the time away, the same catch-up on the way back —
+// and unseen is either or both, seen is neither (DESIGN.md, "What actually
+// costs", 15).
+let unseenAt = 0, onScreen = true;
+function seen() {
+  if (document.hidden || !onScreen) {
+    if (!unseenAt) { unseenAt = performance.now(); post({ type: 'visible', value: false }); }
+    return;
+  }
+  if (!unseenAt) return;
+  const away = (performance.now() - unseenAt) / 1000;
+  unseenAt = 0;
   post({ type: 'visible', value: true, away });
   tick();   // the colour of the hour, now, not at the next minute
-});
+}
+document.addEventListener('visibilitychange', seen);
+if ('IntersectionObserver' in window)
+  new IntersectionObserver(([en]) => { onScreen = en.isIntersecting; seen(); }).observe(canvas);
 // The birds' sky is fixed and the page scrolls through it — one tiny message
 // per scrolled frame, and the worker does the subtraction so we read no layout
 // here. Except on a phone, where style.css anchors the canvas to the document
@@ -600,9 +640,15 @@ if (arrow && 'IntersectionObserver' in window) {
 }
 
 // The service worker: repeat visits paint from disk, and the whole site —
-// flock included — works with no network at all (see sw.js). Registered
-// after load so it never competes with the first paint. A page that is
-// actually offline says so where the curious will look.
+// flock included — works with no network at all (see sw.js). Registered after
+// load AND after the flock's first frame: the install is a round of conditional
+// requests, and the pipe belongs to the birds until they are on it. `load` is
+// asked about, not only listened for, because it has usually passed already —
+// this file awaited its imports above, and the page does not wait for that (a
+// listener added here fired never; the offline gate is what would have said so).
+// A flock that never draws (no worker) is given three seconds, then the worker
+// is registered anyway. A page that is actually offline says so where the
+// curious will look.
 // A sheet opened by a deep link on a FIRST visit is the one thing the worker
 // never sees. It registers on `load` and only starts controlling the page after
 // that, so the <img> has already been fetched around it and is not in its cache
@@ -620,7 +666,9 @@ async function handOver() {
   if (img?.currentSrc) fetch(img.currentSrc, { cache: 'force-cache' }).catch(() => {});
 }
 if ('serviceWorker' in navigator) {
-  addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(handOver).catch(() => {}));
+  const loaded = new Promise(r => document.readyState === 'complete' ? r() : addEventListener('load', r, { once: true }));
+  const drawn = new Promise(r => { flockLive.then(r); setTimeout(r, 3000); });
+  Promise.all([loaded, drawn]).then(() => navigator.serviceWorker.register('/sw.js').then(handOver)).catch(() => {});
   if (navigator.serviceWorker.controller && !navigator.onLine)
     console.log('%cflock%c offline — everything you see was already here.', 'font-weight:600', '');
 }

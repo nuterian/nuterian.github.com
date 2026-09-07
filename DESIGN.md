@@ -53,7 +53,9 @@ fallback. The main thread only sends small messages (pointer, where home is).
   how long you may be away: in the worker it is free, but on the main-thread fallback it is
   one task, and 1200 steps measured 78 ms, a long task by any definition. 600 is ~28 ms, and
   it is the same number `settle()` has always run. Skipped entirely under `?still` and reduced
-  motion, where a still frame is the whole point.
+  motion, where a still frame is the whole point. A phone has a second way out of view — its
+  canvas is anchored to the hero and scrolls off with it — and it takes the same door
+  (*What actually costs*, 15).
 - **A pointer that stops moving stops being a predator.** Until now *you* could only ever
   be a threat: you are the fourth rule, and every branch of it pushed birds away. Leave the
   mouse alone for 45 seconds and the nearest bird — never one already fleeing — flies over
@@ -423,7 +425,7 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    at 30–180 ms of first paint, because on a bandwidth-bound link they share the pipe with
    the stylesheet. Getting more than one hop back means spawning the worker before main.js
    exists, from an inline script after the stylesheet — possible (`post` already queues), not
-   done.
+   done. Half of that hop turned out to be main.js's own, and that half is item 14.
 9. **The service worker re-downloaded the whole shell on every first visit.** The precache
    used `cache: 'reload'` — bypass the HTTP cache — and so, at the load event, while flock.js
    was often still arriving, it fetched everything the page had just fetched, again: 15
@@ -479,6 +481,42 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    and VMs stand, and item 5's measurement says 2D keeps pace where software GL manages 23
    draws/s. So the 2D painter is back, load-bearing, and only the main-thread runner stayed
    deleted. Two rungs became one; the argument for removing the last one was wrong on data.
+14. **The worker waited for four files it did not need.** main.js spawned the worker from its
+   body, and a module's body runs only once everything it imports has arrived — mark, hue,
+   theme and count, four small files, one round trip — though the spawn needs none of them,
+   only the `<canvas>` and a `Worker`. Measured live (400 kbps, 100 ms, 4× CPU): main.js
+   992→1386 ms, the imports 1386→1716, flock.js 1733→2376, birds at 2411. The middle hop was
+   pure waiting, and the one item 8 left on the table. The worker is now made at the top of
+   main.js, before any import, and the four are imported dynamically behind a top-level
+   `await`; `init` follows once they are in, and the worker has nothing to say until then. So
+   flock.js comes down alongside the four instead of after them. Measured on the dev server,
+   two runs each: birds **990 → 838 ms at 4 Mbps / 150 ms** (−150), 2339 → 2253 at 400 kbps
+   (−87: there the two share a pipe that is already full), first paint unchanged to the
+   millisecond. One consequence to know about: a top-level `await` does not hold the page's
+   `load` event, which now fires before the imports land — so anything in main.js that waited
+   for `load` with a listener added after the `await` waited forever. The service worker's
+   registration did exactly that (the offline gate would have said so); it now asks
+   `readyState` instead, and waits for the flock's first frame besides, so the install's round
+   of conditional requests never shares the pipe with flock.js — a flock that never draws is
+   given three seconds. What remains of item 8 is the other half of the hop, the time main.js
+   itself takes to arrive, and that can only be bought from an inline script, at the CSP's
+   expense. Probe: `tools/out/waterfall.mjs URL [kbps] [ms]`.
+15. **The flock flew on after the hero had scrolled away.** On a phone the canvas is anchored to
+   the hero (style.css) and leaves with it, and nothing told the worker: only the tab hiding
+   stopped the loop, so a flock nobody could see went on simulating, drawing a full frame and
+   committing it to an off-screen layer at 60 Hz for as long as the archive was read — on a
+   phone, most of the visit, and the device class where every real problem this page has had
+   was found. An IntersectionObserver on the canvas now reports which side of the fold it is
+   on, and both exits — the tab hiding, the canvas leaving — go through the same `visible`
+   message, with the same time-away catch-up on the way back; unseen is either or both, seen
+   is neither. On a desk the canvas is fixed and the observer never has anything to say. A
+   phone arriving at `#archive` gets at most one frame before it stops, and its birds arrive
+   when the hero does. `Runner.stop()` reports the partial second first, so the perf beacon's
+   `fps` is the rate the flock last flew at, not the 0 from `init`. Probe:
+   `tools/out/offscreen.mjs` — positions from `flock.snapshot()`, because a stopped worker
+   answers the same numbers twice. The saving is stated, not measured on a device: the
+   worker's frame — the sim, one instanced draw over ~2 MP, the commit — and whatever the
+   compositor was doing with a layer it could not show.
 
 Instruments in `tools/`: `fps.mjs` (achieved flock frame rate — the number that matters;
 main-thread rAF deltas are vsync-pinned and cannot see any of this), `perf.mjs` (journey long-task benchmark),
@@ -1266,8 +1304,8 @@ focus rings. ≥ 44 px targets. Every screenshot has a real description.
   travelled together travel as one: `style` carries the hour's daylight; `layout` carries the
   canvas's size and ratio, the scroll offset, the content walls and the mark's ideal size (four
   verbs before, each settling the still by its own count); `lure` carries the size the mark
-  condenses to; `home` with no points clears it; `visible` carries the time away and runs the
-  catch-up itself. The per-frame `scroll` and `pointer` stay their own, being the hot path.
+  condenses to; `home` with no points clears it; `visible` carries the time away — from a hidden
+  tab or, on a phone, a canvas scrolled off — and runs the catch-up itself. The per-frame `scroll` and `pointer` stay their own, being the hot path.
 - **One copy of the plumbing** (`js/theme.js`): which theme is in force, how a mode is
   applied and remembered, how the hour's light lands on the page and the flock. main.js
   and 404.js each carried a private copy and the copies drifted — a missing modifier
