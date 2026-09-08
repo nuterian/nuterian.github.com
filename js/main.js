@@ -309,7 +309,7 @@ addEventListener('resize', () => {
 // the same door — `visible`, the time away, the same catch-up on the way back —
 // and unseen is either or both, seen is neither (DESIGN.md, "What actually
 // costs", 15).
-let unseenAt = 0, onScreen = true;
+let unseenAt = 0, onScreen = true, unseenFor = 0;   // unseenFor: seconds nobody could see the flock, so far
 function seen() {
   if (document.hidden || !onScreen) {
     if (!unseenAt) { unseenAt = performance.now(); post({ type: 'visible', value: false }); }
@@ -317,13 +317,14 @@ function seen() {
   }
   if (!unseenAt) return;
   const away = (performance.now() - unseenAt) / 1000;
-  unseenAt = 0;
+  unseenFor += away; unseenAt = 0;
   post({ type: 'visible', value: true, away });
   tick();   // the colour of the hour, now, not at the next minute
 }
 document.addEventListener('visibilitychange', seen);
 if ('IntersectionObserver' in window)
   new IntersectionObserver(([en]) => { onScreen = en.isIntersecting; seen(); }).observe(canvas);
+seen();   // a tab opened in the background is unseen from its first millisecond
 // The birds' sky is fixed and the page scrolls through it — one tiny message
 // per scrolled frame, and the worker does the subtraction so we read no layout
 // here. Except on a phone, where style.css anchors the canvas to the document
@@ -677,13 +678,20 @@ count();
 // …and once, how the page ran here: at ten seconds, or when the page goes
 // away first — a tab switched on a phone fires `visibilitychange`, not
 // `pagehide`. sendBeacon survives both. Whichever comes first, and only once.
+// `fps` is sent only when the flock was in view for two seconds or more. The
+// first field data had two zeros that were not slow devices: a visit that left
+// in its first second, before the first report, and a tab opened in the
+// background, whose worker never got a frame. A rate nobody could have seen is
+// not a rate; the row still carries everything else.
 {
   let sent = false;
   const perf = () => {
     if (sent) return; sent = true;
     const d = dpr();
+    const now = performance.now();
+    const shown = (now - (unseenAt ? now - unseenAt : 0)) / 1000 - unseenFor;
     report('perf', {
-      fps: Math.round(stats.fps), n: stats.n,
+      ...(shown >= 2 ? { fps: Math.round(stats.fps) } : {}), n: stats.n,
       renderer: stats.renderer || (STILL ? 'still' : 'none'), perched: +everPerched,
       dpr: +d.toFixed(2), mp: +(world.w * world.h * d * d / 1e6).toFixed(2),
       ...vitals(), t: Math.round(performance.now() / 1000),

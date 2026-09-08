@@ -512,7 +512,13 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    is neither. On a desk the canvas is fixed and the observer never has anything to say. A
    phone arriving at `#archive` gets at most one frame before it stops, and its birds arrive
    when the hero does. `Runner.stop()` reports the partial second first, so the perf beacon's
-   `fps` is the rate the flock last flew at, not the 0 from `init`. Probe:
+   `fps` is the rate the flock last flew at, not the 0 from `init` — and the beacon leaves `fps`
+   out altogether unless the flock was in view for two seconds, because the first field data
+   (31 visits, read 2026-09-07) had two zeros that were a one-second visit and a background tab,
+   not devices. That reading also settled the DPR question this item and item 3 left open: every
+   real GPU held 57–60 at both 1.7 MP (a phone at 2×) and 4.5 MP (a laptop at 1.5×); the one slow
+   visit was a software-GL machine on the 2D painter at 26 fps, which is item 5's population on its
+   intended path. PIX, the floor and the bleed stay. Probe:
    `tools/out/offscreen.mjs` — positions from `flock.snapshot()`, because a stopped worker
    answers the same numbers twice. The saving is stated, not measured on a device: the
    worker's frame — the sim, one instanced draw over ~2 MP, the commit — and whatever the
