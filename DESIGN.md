@@ -518,7 +518,13 @@ carried; an iPad lands on 1.69 and exactly 3.6 MP; 1440×900 @2 and 5K @2 are un
    not devices. That reading also settled the DPR question this item and item 3 left open: every
    real GPU held 57–60 at both 1.7 MP (a phone at 2×) and 4.5 MP (a laptop at 1.5×); the one slow
    visit was a software-GL machine on the 2D painter at 26 fps, which is item 5's population on its
-   intended path. PIX, the floor and the bleed stay. Probe:
+   intended path. PIX, the floor and the bleed stay. That reading was also nearly all one laptop
+   and one phone — the author's — so `?nocount` on any page of the domain now switches counting off
+   for that browser (`?count` undoes it): one localStorage key, read by every app's counter since
+   they share an origin, written only by asking for it and never sent. And the beacon gained the
+   number items 8 and 14 were aimed at and only ever measured in the lab: `birds`, the ms to the
+   flock's first frame (left out if the tab was hidden before it, when it is not a load time), with
+   `net`, the browser's coarse word for the link. Probes: `tools/out/nocount.mjs`, and:
    `tools/out/offscreen.mjs` — positions from `flock.snapshot()`, because a stopped worker
    answers the same numbers twice. The saving is stated, not measured on a device: the
    worker's frame — the sim, one instanced draw over ~2 MP, the commit — and whatever the

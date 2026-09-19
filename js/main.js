@@ -269,9 +269,16 @@ function startWorker() {
 // exactly right: the fallback outlives anything broken above it.
 let liveResolve;
 const flockLive = new Promise(r => { liveResolve = r; });   // settled by live(); the service worker waits on it
+// When the flock could not be seen (the hidden tab, the scrolled-off canvas — see seen(), below). Declared here
+// because live() reads them, and live() is above.
+let unseenAt = 0, onScreen = true, unseenFor = 0;   // unseenFor: seconds nobody could see the flock, so far
+let birdsAt = 0;   // ms to the flock's first frame, for the perf beacon — only if the page was in view throughout
 function live() {
   if (root.classList.contains('flock-on')) return;
   root.classList.add('flock-on');
+  // A hidden tab's worker gets no frames, so its "first frame" is whenever the
+  // tab was finally looked at; that is not a load time and is not reported.
+  if (!unseenAt && !unseenFor) birdsAt = Math.round(performance.now());
   liveResolve();
   const still = $('.still');
   if (!still) return;
@@ -309,7 +316,6 @@ addEventListener('resize', () => {
 // the same door — `visible`, the time away, the same catch-up on the way back —
 // and unseen is either or both, seen is neither (DESIGN.md, "What actually
 // costs", 15).
-let unseenAt = 0, onScreen = true, unseenFor = 0;   // unseenFor: seconds nobody could see the flock, so far
 function seen() {
   if (document.hidden || !onScreen) {
     if (!unseenAt) { unseenAt = performance.now(); post({ type: 'visible', value: false }); }
@@ -692,6 +698,12 @@ count();
     const shown = (now - (unseenAt ? now - unseenAt : 0)) / 1000 - unseenFor;
     report('perf', {
       ...(shown >= 2 ? { fps: Math.round(stats.fps) } : {}), n: stats.n,
+      // Time to the first birds: the number two rounds of load-path work were
+      // aimed at, and until now measured only in the lab. With the browser's own
+      // coarse word for the connection ('4g', '3g' — Chromium only), so a slow
+      // arrival can be told from a slow link.
+      ...(birdsAt ? { birds: birdsAt } : {}),
+      ...(navigator.connection?.effectiveType ? { net: navigator.connection.effectiveType } : {}),
       renderer: stats.renderer || (STILL ? 'still' : 'none'), perched: +everPerched,
       dpr: +d.toFixed(2), mp: +(world.w * world.h * d * d / 1e6).toFixed(2),
       ...vitals(), t: Math.round(performance.now() / 1000),

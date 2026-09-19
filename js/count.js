@@ -2,8 +2,10 @@
  * count.js — one POST per page view, one more with how the page ran, and
  * nothing else.
  *
- * Self-hosted Umami at stats.jugalm.com. No cookies, no localStorage, no
- * device fingerprint, no client-side identifier of any kind: the server
+ * Self-hosted Umami at stats.jugalm.com. No cookies, no device fingerprint, no
+ * client-side identifier of any kind, and nothing is ever stored on a visitor's
+ * machine (the one localStorage key this file reads is the author's own off
+ * switch, below — it is only ever written by asking for it): the server
  * derives a visit from the request itself against a salt that rotates daily,
  * so yesterday's visitor cannot be joined to today's. Nothing here can
  * identify a person, and nothing here is shared with anyone.
@@ -20,11 +22,27 @@ const WEBSITE = '0a907e1e-2783-4515-b2bf-d5a2b7d8db57';
 const optedOut = () =>
   navigator.doNotTrack === '1' || window.doNotTrack === '1' || navigator.globalPrivacyControl === true;
 
+// The author is not a visitor. The first field reading was thirty-one visits, and
+// nearly all of them were one laptop and one phone — mine. `?nocount` on any page
+// of jugalm.com turns counting off for this browser, for every app on the domain
+// (they share an origin, and each of their counters reads the same key);
+// `?count` turns it back on. The flag lives on the device that asked for it and
+// is never sent anywhere. Storage that throws (blocked, private) simply counts.
+const NOCOUNT = 'nocount';
+const mine = () => {
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.has('nocount')) localStorage.setItem(NOCOUNT, '1');
+    else if (q.has('count')) localStorage.removeItem(NOCOUNT);
+    return localStorage.getItem(NOCOUNT) === '1';
+  } catch { return false; }
+};
+
 // Only the real site, and only real people: a local build or a Playwright
 // run is not a visit, and the gate suite alone would otherwise invent
 // dozens of them every time it runs.
 const skip = () =>
-  location.hostname !== 'jugalm.com' || navigator.webdriver || optedOut() || !navigator.sendBeacon;
+  location.hostname !== 'jugalm.com' || navigator.webdriver || optedOut() || !navigator.sendBeacon || mine();
 
 export function count(url = location.pathname + location.search + location.hash) {
   send({ url });
